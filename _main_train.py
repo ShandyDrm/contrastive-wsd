@@ -161,15 +161,6 @@ class Trainer:
 
                 torch.cuda.empty_cache()
 
-def load_train_objs(base_model: str, device: str, tokenizer, resume_from: int=0, small=False, freeze_concept_encoder=True, ukc_num_neighbors=[8, 8]):
-    train_dataset, validation_dataset, _, ukc = load_dataset(tokenizer, small, ukc_num_neighbors)
-    model = ContrastiveWSD(base_model, device=device, freeze_concept_encoder=freeze_concept_encoder)
-    if (resume_from != 0):
-        model_name = f"checkpoint_{resume_from:02d}.pt"
-        model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-    return train_dataset, validation_dataset, ukc, model, optimizer
-
 def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedTokenizer, pin_memory: bool):
     data_collator = TrainDataCollator(tokenizer=tokenizer)
     return DataLoader(
