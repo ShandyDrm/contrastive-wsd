@@ -6,7 +6,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from tqdm.auto import tqdm
 
-import os, csv
+import csv
 import numpy as np
 
 from model import ContrastiveWSD
@@ -30,7 +30,6 @@ class Trainer:
         resume_from: int,
         gloss_sampler: GlossSampler,
         polysemy_sampler: PolysemySampler,
-        rng_poisson: np.random.BitGenerator,
         lemma_sense_mapping: dict
     ) -> None:
         self.model = model.to(rank)
@@ -46,7 +45,6 @@ class Trainer:
         self.resume_from = resume_from
         self.gloss_sampler = gloss_sampler
         self.polysemy_sampler = polysemy_sampler
-        self.rng_poisson = rng_poisson
         self.lemma_sense_mapping = lemma_sense_mapping
         self.loss_fn = CrossEntropyLoss()
 
@@ -94,18 +92,14 @@ class Trainer:
         all_samples = exclude_from_sampling + list(gloss_samples.index)
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
-        hypernym_glosses, hypernym_edges, hyponym_glosses, hyponym_edges = self.ukc.sample(all_samples_tensor)
-
-        hypernym_tokens = self.tokenizer(hypernym_glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.rank)
-        hypernym_edges = hypernym_edges.to(self.rank)
-
-        hyponym_tokens = self.tokenizer(hyponym_glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.rank)
-        hyponym_edges = hyponym_edges.to(self.rank)
+        glosses, edges = self.ukc.sample(all_samples_tensor)
+        tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.rank)
+        edges = edges.to(self.rank)
 
         if train:
             self.optimizer.zero_grad()
 
-        input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, hypernym_tokens, hypernym_edges, hyponym_tokens, hyponym_edges, len(labels))
+        input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(labels))
         loss = self._calculate_loss(input_embeddings, gnn_vector)
 
         if train:
@@ -197,45 +191,6 @@ def generate_lemma_sense_mapping(lemma_sense_mapping_csv):
             lemma_sense_mapping[f"{lemma}_{pos}"] = senses
     return lemma_sense_mapping
 
-def main(rank: int,
-         world_size: int,
-         seed: int,
-         total_epochs: int,
-         validate_every: int,
-         batch_size: int,
-         base_model: str,
-         small: bool,
-         freeze_concept_encoder: bool,
-         resume_from: int,
-         ukc_num_neighbors: list[int],
-         lemma_sense_mapping_csv: str):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    tokenizer = AutoTokenizer.from_pretrained(base_model)
-    train_dataset, validation_dataset, ukc, model, optimizer = load_train_objs(base_model, device, tokenizer, resume_from, small, freeze_concept_encoder, ukc_num_neighbors)
-    train_data = prepare_dataloader(train_dataset, batch_size, tokenizer, pin_memory=True)
-    validation_data = prepare_dataloader(validation_dataset, batch_size, tokenizer, pin_memory=False)
-    gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=seed)
-    polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=seed)
-    lemma_sense_mapping = generate_lemma_sense_mapping(lemma_sense_mapping_csv)
-    rng_poisson = np.random.Generator(np.random.PCG64(42))
-    trainer = Trainer(
-        model=model,
-        train_data=train_data,
-        validation_data=validation_data,
-        optimizer=optimizer,
-        world_size=world_size,
-        rank=rank,
-        validate_every=validate_every,
-        ukc=ukc,
-        tokenizer=tokenizer,
-        batch_size=batch_size,
-        resume_from=resume_from,
-        gloss_sampler=gloss_sampler,
-        polysemy_sampler=polysemy_sampler,
-        rng_poisson=rng_poisson,
-        lemma_sense_mapping=lemma_sense_mapping)
-    trainer.train(total_epochs)
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Script for training Contrastive WSD model')
@@ -251,4 +206,38 @@ if __name__ == "__main__":
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
     args = parser.parse_args()
 
-    main(0, 1, args.seed, args.total_epochs, args.validate_every, args.batch_size, args.base_model, args.small, args.freeze_concept_encoder, args.resume_from, args.ukc_num_neighbors, args.lemma_sense_mapping)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+
+    train_dataset, validation_dataset, _, ukc = load_dataset(tokenizer, args.small, args.ukc_num_neighbors)
+    train_data = prepare_dataloader(train_dataset, args.batch_size, tokenizer, pin_memory=True)
+    validation_data = prepare_dataloader(validation_dataset, args.batch_size, tokenizer, pin_memory=False)
+
+    gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
+    polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
+    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping_csv)
+
+    model = ContrastiveWSD(args.base_model, device=device, freeze_concept_encoder=args.freeze_concept_encoder)
+    if (args.resume_from != 0):
+        model_name = f"checkpoint_{args.resume_from:02d}.pt"
+        model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+
+    trainer = Trainer(
+        model=model,
+        train_data=train_data,
+        validation_data=validation_data,
+        optimizer=optimizer,
+        world_size=args.world_size,
+        rank=args.rank,
+        validate_every=args.validate_every,
+        ukc=ukc,
+        tokenizer=tokenizer,
+        batch_size=args.batch_size,
+        resume_from=args.resume_from,
+        gloss_sampler=args.gloss_sampler,
+        polysemy_sampler=polysemy_sampler,
+        lemma_sense_mapping=lemma_sense_mapping)
+    trainer.train(args.total_epochs)
