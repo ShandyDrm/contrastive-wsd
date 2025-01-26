@@ -173,3 +173,4 @@ cython_debug/
 # DO NOT UPLOAD THE DATA!
 *.csv
 *.pt
+*.txt
