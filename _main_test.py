@@ -35,16 +35,13 @@ class Evaluator:
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
 
     def validate(self):
-        all_top1 = []
+        all_top1, all_scores = [], []
         for batch in tqdm(self.validation_data):
             sentence_ids = batch["ids"]
             text_input_ids = batch["input_ids"].to(self.device)
             text_attention_mask = batch["attention_mask"].to(self.device)
             all_candidate_ids = batch["all_candidate_ids"]
             candidate_id_ranges = batch["candidate_id_ranges"]
-
-            num_neighbors = [len(sentence_ids)*2, len(sentence_ids)*4, len(sentence_ids)*8, len(sentence_ids)*16]
-            self.ukc.sampler.num_neighbors = num_neighbors
 
             glosses, edges = self.ukc.sample(all_candidate_ids)
             tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
@@ -58,14 +55,21 @@ class Evaluator:
                 pairwise_similarity = torch.matmul(input_embeddings[i], sub_matrix).tolist()
                 candidate_ids = all_candidate_ids[start:end].tolist()
 
-                _, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
+                sorted_pairwise_similarity, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
+
+                for score, candidate_id in zip(sorted_pairwise_similarity, sorted_candidate_ids):
+                    all_scores.append([sentence_id, candidate_id, score])
 
                 top1 = [sentence_id] + list(sorted_candidate_ids[:1])
                 all_top1.append(top1)
 
-        with open(f"06_GATv2Conv-BERT-Graph4-GlossNoise_{int(self.id):02d}.txt", 'w') as file:
+        with open(f"08-GlossNoise-Norm-{int(self.id):02d}.txt", 'w') as file:
             writer = csv.writer(file, delimiter=' ')
             writer.writerows(all_top1)
+
+        with open(f"08-GlossNoise-Norm-{int(self.id):02d}-Scores.csv", 'w') as file:
+            writer = csv.writer(file)
+            writer.writerows(all_scores)
 
 def load_model(base_model: str, load_file: str, device: str):
     model = ContrastiveWSD(base_model, device=device, freeze_concept_encoder=True)

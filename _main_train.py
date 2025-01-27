@@ -167,7 +167,7 @@ def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedT
         dataset,
         batch_size=batch_size,
         pin_memory=pin_memory,
-        shuffle=False,
+        shuffle=True,
         collate_fn=data_collator
     )
 
@@ -197,6 +197,8 @@ if __name__ == "__main__":
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
     args = parser.parse_args()
 
+    torch.manual_seed(args.seed)
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
@@ -207,7 +209,7 @@ if __name__ == "__main__":
 
     gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
-    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping_csv)
+    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
     model = ContrastiveWSD(args.base_model, device=device, freeze_concept_encoder=args.freeze_concept_encoder)
     if (args.resume_from != 0):
@@ -216,19 +218,20 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
 
+    world_size, rank = 1, 0
     trainer = Trainer(
         model=model,
         train_data=train_data,
         validation_data=validation_data,
         optimizer=optimizer,
-        world_size=args.world_size,
-        rank=args.rank,
+        world_size=world_size,
+        rank=rank,
         validate_every=args.validate_every,
         ukc=ukc,
         tokenizer=tokenizer,
         batch_size=args.batch_size,
         resume_from=args.resume_from,
-        gloss_sampler=args.gloss_sampler,
+        gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
         lemma_sense_mapping=lemma_sense_mapping)
     trainer.train(args.total_epochs)
