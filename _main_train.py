@@ -86,7 +86,7 @@ class Trainer:
                 k = 1
                 polysemy_samples = self.polysemy_sampler.generate_samples(k, only=possible_senses)
                 negative_from_polysemy.append(polysemy_samples["gnn_id"].iloc[0])
-        
+
         exclude_from_sampling = batch["labels"].tolist() + negative_from_polysemy
         gloss_samples = self.gloss_sampler.generate_samples(self.batch_size, exclude=exclude_from_sampling)
         all_samples = exclude_from_sampling + list(gloss_samples.index)

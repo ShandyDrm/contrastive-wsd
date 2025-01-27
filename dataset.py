@@ -93,7 +93,7 @@ class TrainDataset(Dataset):
             "attention_mask": inputs["attention_mask"].squeeze(),
             "labels": torch.tensor(self.labels[idx], dtype=torch.long),
         }
-    
+
 class TestDataset(Dataset):
     def __init__(self, ids, texts, candidate_ids, tokenizer, max_length):
         self.ids = ids
@@ -127,12 +127,12 @@ class TrainDataCollator(DataCollatorWithPadding):
             {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask", "token_type_ids", "labels"]}
             for feature in features
         ]
-        
+
         batch = super().__call__(filtered_features)
 
         lemmas = []
         pos = []
-        
+
         for feature in features:
             lemmas.append(feature["lemmas"])
             pos.append(feature["pos"])
@@ -147,18 +147,18 @@ class TestDataCollator(DataCollatorWithPadding):
             {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask", "token_type_ids", "labels"]}
             for feature in features
         ]
-        
+
         batch = super().__call__(filtered_features)
 
         sentence_ids = []
         all_candidate_ids = []
         candidate_id_ranges = []
         current_index = 0
-        
+
         for feature in features:
             sentence_ids.append(feature["ids"])
 
-            candidates = feature["candidate_ids"]        
+            candidates = feature["candidate_ids"]
             all_candidate_ids.extend(candidates)
 
             candidate_id_ranges.append((current_index, current_index + len(candidates)))
@@ -171,7 +171,7 @@ class TestDataCollator(DataCollatorWithPadding):
 
 def load_dataset(tokenizer, small=False, ukc_num_neighbors=[8, 8]):
     ukc_df = pd.read_csv("ukc.csv")
-    ukc_gnn_mapping = dict(zip(ukc_df['ukc_id'], ukc_df['gnn_id']))    
+    ukc_gnn_mapping = dict(zip(ukc_df['ukc_id'], ukc_df['gnn_id']))
 
     train_df = read_train_csv_to_dataframe("SemCor_Train_New.csv", ukc_gnn_mapping, small)
     validate_df = read_train_csv_to_dataframe("SemCor_Validate_New.csv", ukc_gnn_mapping, small)

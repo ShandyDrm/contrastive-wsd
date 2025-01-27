@@ -22,18 +22,18 @@ class ContrastiveWSD(torch.nn.Module):
                 (BatchNorm1d(self.gnn_hidden_size), 'x -> x'),
                 GELU(),
                 Dropout(p=dropout_p),
-            
+
                 (GATv2Conv(self.gnn_hidden_size, self.gnn_hidden_size), 'x, edge_index -> x'),
                 BatchNorm1d(self.gnn_hidden_size),
                 GELU(),
                 Dropout(p=dropout_p),
-            
+
                 (GATv2Conv(self.gnn_hidden_size, self.gnn_hidden_size), 'x, edge_index -> x'),
                 BatchNorm1d(self.gnn_hidden_size),
                 GELU(),
-                Dropout(p=dropout_p),    
+                Dropout(p=dropout_p),
             ]).to(device)
-        
+
     def forward(self, text_input_ids, text_attention_mask, tokenized_glosses, edges, labels_size):
         input_embeddings = self.word_encoder(text_input_ids, text_attention_mask).last_hidden_state[:, 0, :]
         # expected shape: [n_sentences, self.gnn_hidden_size]
@@ -42,5 +42,5 @@ class ContrastiveWSD(torch.nn.Module):
         gnn_vector = self.concept_gnn(glosses_embeddings, edges) # expected shape: [n_glosses, self.gnn_hidden_size]
 
         gnn_vector = gnn_vector[:labels_size] # because the subgraphs also include surrounding nodes
-        
+
         return input_embeddings, gnn_vector

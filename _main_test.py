@@ -87,25 +87,6 @@ def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedT
         collate_fn=data_collator
     )
 
-def main(ids: List[int], base_model: str, load_files: List[str], batch_size: int, small: bool, ukc_num_neighbors: list[int]):
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    tokenizer = AutoTokenizer.from_pretrained(base_model)
-    _, _, test_dataset, ukc = load_dataset(tokenizer, small, ukc_num_neighbors)
-    test_data = prepare_dataloader(test_dataset, batch_size, tokenizer)
-
-    for id, load_file in zip(ids, load_files):
-        model = load_model(base_model, load_file, device)
-        evaluator = Evaluator(
-            id=id,
-            model=model,
-            device=device,
-            validation_data=test_data,
-            ukc=ukc,
-            tokenizer=tokenizer,
-            batch_size=batch_size
-        )
-        evaluator.validate()
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='simple distributed training job')
@@ -118,4 +99,21 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args.ids, args.base_model, args.load_files, args.batch_size, args.small, args.ukc_num_neighbors)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    _, _, test_dataset, ukc = load_dataset(tokenizer, args.small, args.ukc_num_neighbors)
+    test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
+
+    for id, load_file in zip(args.ids, args.load_files):
+        model = load_model(args.base_model, load_file, device)
+        evaluator = Evaluator(
+            id=id,
+            model=model,
+            device=device,
+            validation_data=test_data,
+            ukc=ukc,
+            tokenizer=tokenizer,
+            batch_size=args.batch_size
+        )
+        evaluator.validate()
