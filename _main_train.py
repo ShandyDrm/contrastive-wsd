@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
@@ -23,6 +24,8 @@ class Trainer:
         train_data: DataLoader,
         validation_data: DataLoader,
         optimizer: torch.optim.Optimizer,
+        scheduler: LRScheduler,
+        scheduler_step: int,
         validate_every: int,
         ukc: UKC,
         tokenizer: PreTrainedTokenizer,
@@ -37,6 +40,9 @@ class Trainer:
         self.train_data = train_data
         self.validation_data = validation_data
         self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.scheduler_step = scheduler_step
+        self.scheduler_counter = 0
         self.validate_every = validate_every
         self.ukc = ukc
         self.tokenizer = tokenizer
@@ -108,6 +114,12 @@ class Trainer:
         if train:
             loss.backward()
             self.optimizer.step()
+
+            if self.scheduler_counter == self.scheduler_step:
+                self.scheduler.step()
+                self.scheduler_counter = 0
+            else:
+                self.scheduler_counter += 1
 
         return loss
 
@@ -195,6 +207,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume_from', default=0, type=int, help='Resume training from which batch')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
+    parser.add_argument('--scheduler_step', type=int, default=16, help="update scheduler every n steps, default=16")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -216,12 +229,17 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
 
+    T_max = (len(train_data) * args.total_epochs) / (args.batch_size * args.scheduler_step)
+    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
+
     trainer = Trainer(
         model=model,
         device=device,
         train_data=train_data,
         validation_data=validation_data,
         optimizer=optimizer,
+        scheduler=scheduler,
+        scheduler_step=args.scheduler_step,
         validate_every=args.validate_every,
         ukc=ukc,
         tokenizer=tokenizer,
