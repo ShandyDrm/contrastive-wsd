@@ -62,7 +62,7 @@ class Trainer:
         logits = torch.matmul(input_embeddings, gnn_vector.T) * np.exp(temperature)
 
         labels_len = min(logits.shape[0], self.batch_size)
-        labels = torch.arange(labels_len).to(self.rank)
+        labels = torch.arange(labels_len).to(self.device)
 
         loss_i = self.loss_fn(logits, labels)
         logits_t = logits.T[:self.batch_size]
