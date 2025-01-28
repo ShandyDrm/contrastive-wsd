@@ -49,7 +49,7 @@ def read_train_csv_to_dataframe(csv_filename, ukc_gnn_mapping, small=False):
     df = df[["id", "lemma", "pos", "text", "gnn_id", "gnn_candidate_ids", "target_index"]]
 
     if small:
-        df = df.loc[:128]
+        df = df.loc[:100]
 
     return df
 
@@ -61,7 +61,7 @@ def read_test_csv_to_dataframe(csv_filename, ukc_gnn_mapping, small=False):
     df = df[["id", "text", "gnn_candidate_ids"]]
 
     if small:
-        df = df.loc[:128]
+        df = df.loc[:100]
 
     return df
 

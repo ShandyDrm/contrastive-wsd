@@ -60,5 +60,5 @@ class ContrastiveWSD(torch.nn.Module):
         hyponym_embeddings = self.concept_encoder(**hyponym_tokens).last_hidden_state[:, 0, :]
         hyponym_gnn_output = self.hyponym_gnn(hyponym_embeddings, hyponym_edges)
 
-        bilinear_vectors = self.bilinear(hypernym_gnn_output[:labels_size], hyponym_gnn_output[:labels_size])        
+        bilinear_vectors = self.bilinear(hypernym_gnn_output[:labels_size], hyponym_gnn_output[:labels_size])
         return input_embeddings, bilinear_vectors
