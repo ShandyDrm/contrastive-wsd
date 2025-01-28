@@ -11,7 +11,7 @@ class GlossSampler():
             training_data_df = pd.read_csv(training_data)
         except FileNotFoundError:
             raise FileNotFoundError(f"{training_data} not found.")
-
+        
         try:
             ukc_df = pd.read_csv(ukc)
         except FileNotFoundError:
@@ -22,7 +22,7 @@ class GlossSampler():
             count=('gnn_id', 'size'),
             gloss=('gloss', 'first')
         )
-
+        
         self.proportions = self.glosses_df["count"] / self.glosses_df["count"].sum()
 
     def generate_samples(self, n, only=None, exclude=None):
@@ -55,7 +55,7 @@ class PolysemySampler():
             training_data_df = pd.read_csv(training_data)
         except FileNotFoundError:
             raise FileNotFoundError(f"{training_data} not found.")
-
+        
         try:
             ukc_df = pd.read_csv(ukc)
         except FileNotFoundError:
@@ -68,7 +68,7 @@ class PolysemySampler():
         glosses_df = glosses_df.fillna({"count": 0})
         glosses_df['count'] = glosses_df['count'].astype(int) + 1
         self.glosses_df = glosses_df[["gnn_id", "gloss", "count"]]
-
+        
         self.proportions = self.glosses_df["count"] / self.glosses_df["count"].sum()
 
     def generate_samples(self, n, only=None, exclude=None):

@@ -1,13 +1,12 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-import torch.nn.functional as F
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from tqdm.auto import tqdm
 
 import csv
-import numpy as np
+from typing import List
 
 from model import ContrastiveWSD
 from dataset import load_dataset, TestDataCollator
@@ -32,8 +31,6 @@ class Evaluator:
         self.tokenizer = tokenizer
         self.batch_size = batch_size
 
-        self.temperature = 0.07
-
         DEFAULT_MAX_LENGTH = 512
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
 
@@ -56,13 +53,10 @@ class Evaluator:
 
             input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, hypernym_tokens, hypernym_edges, hyponym_tokens, hyponym_edges, len(all_candidate_ids))
 
-            input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
-            gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
-
             for i, (start, end) in enumerate(candidate_id_ranges):
                 sentence_id = sentence_ids[i]
                 sub_matrix = gnn_vector[start:end].T
-                pairwise_similarity = (torch.matmul(input_embeddings[i], sub_matrix) * np.exp(self.temperature)).tolist()
+                pairwise_similarity = torch.matmul(input_embeddings[i], sub_matrix).tolist()
                 candidate_ids = all_candidate_ids[start:end].tolist()
 
                 sorted_pairwise_similarity, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
@@ -97,6 +91,25 @@ def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedT
         collate_fn=data_collator
     )
 
+def main(ids: List[int], base_model: str, load_files: List[str], batch_size: int, small: bool, ukc_num_neighbors: list[int]):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    tokenizer = AutoTokenizer.from_pretrained(base_model)
+    _, _, test_dataset, ukc = load_dataset(tokenizer, small, ukc_num_neighbors)
+    test_data = prepare_dataloader(test_dataset, batch_size, tokenizer)
+
+    for id, load_file in zip(ids, load_files):
+        model = load_model(base_model, load_file, device)
+        evaluator = Evaluator(
+            id=id,
+            model=model,
+            device=device,
+            validation_data=test_data,
+            ukc=ukc,
+            tokenizer=tokenizer,
+            batch_size=batch_size
+        )
+        evaluator.validate()
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='simple distributed training job')
@@ -109,21 +122,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
-    _, _, test_dataset, ukc = load_dataset(tokenizer, args.small, args.ukc_num_neighbors)
-    test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
-
-    for id, load_file in zip(args.ids, args.load_files):
-        model = load_model(args.base_model, load_file, device)
-        evaluator = Evaluator(
-            id=id,
-            model=model,
-            device=device,
-            validation_data=test_data,
-            ukc=ukc,
-            tokenizer=tokenizer,
-            batch_size=args.batch_size
-        )
-        evaluator.validate()
+    main(args.ids, args.base_model, args.load_files, args.batch_size, args.small, args.ukc_num_neighbors)
