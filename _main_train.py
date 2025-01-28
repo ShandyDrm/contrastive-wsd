@@ -18,11 +18,10 @@ class Trainer:
     def __init__(
         self,
         model: torch.nn.Module,
+        device: str,
         train_data: DataLoader,
         validation_data: DataLoader,
         optimizer: torch.optim.Optimizer,
-        world_size: int,
-        rank: int,
         validate_every: int,
         ukc: UKC,
         tokenizer: PreTrainedTokenizer,
@@ -32,12 +31,11 @@ class Trainer:
         polysemy_sampler: PolysemySampler,
         lemma_sense_mapping: dict
     ) -> None:
-        self.model = model.to(rank)
+        self.model = model.to(device)
+        self.device = device
         self.train_data = train_data
         self.validation_data = validation_data
         self.optimizer = optimizer
-        self.world_size = world_size
-        self.rank = rank
         self.validate_every = validate_every
         self.ukc = ukc
         self.tokenizer = tokenizer
@@ -51,19 +49,16 @@ class Trainer:
         DEFAULT_MAX_LENGTH = 512
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
 
-    def _log_loss_distributed(self, loss: torch.Tensor, world_size, epoch, batch_number):
+    def _log_loss_distributed(self, loss: torch.Tensor, epoch, batch_number):
         loss_tensor = loss.clone().detach().to(torch.float32)
-
-        if self.rank == 0:
-            avg_loss = loss_tensor.item() / world_size
-            with open("loss.log", "a") as f:
-                f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {avg_loss:.3f}\n")
+        with open("loss.log", "a") as f:
+            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {loss_tensor:.3f}\n")
 
     def _calculate_loss(self, input_embeddings, gnn_vector):
         logits = torch.matmul(input_embeddings, gnn_vector.T)
 
         labels_len = min(logits.shape[0], self.batch_size)
-        labels = torch.arange(labels_len).to(self.rank)
+        labels = torch.arange(labels_len).to(self.device)
 
         loss_i = self.loss_fn(logits, labels)
         logits_t = logits.T[:self.batch_size]
@@ -72,9 +67,9 @@ class Trainer:
         return loss
 
     def _run_batch(self, batch, train=True):
-        text_input_ids = batch["input_ids"].to(self.rank)
-        text_attention_mask = batch["attention_mask"].to(self.rank)
-        labels = batch["labels"].to(self.rank)
+        text_input_ids = batch["input_ids"].to(self.device)
+        text_attention_mask = batch["attention_mask"].to(self.device)
+        labels = batch["labels"].to(self.device)
 
         negative_from_polysemy = []
         for lemma, pos, label in zip(batch["lemmas"], batch["pos"], batch["labels"]):
@@ -94,11 +89,11 @@ class Trainer:
 
         hypernym_glosses, hypernym_edges, hyponym_glosses, hyponym_edges = self.ukc.sample(all_samples_tensor)
 
-        hypernym_tokens = self.tokenizer(hypernym_glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.rank)
-        hypernym_edges = hypernym_edges.to(self.rank)
+        hypernym_tokens = self.tokenizer(hypernym_glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+        hypernym_edges = hypernym_edges.to(self.device)
 
-        hyponym_tokens = self.tokenizer(hyponym_glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.rank)
-        hyponym_edges = hyponym_edges.to(self.rank)
+        hyponym_tokens = self.tokenizer(hyponym_glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+        hyponym_edges = hyponym_edges.to(self.device)
 
         if train:
             self.optimizer.zero_grad()
@@ -114,12 +109,12 @@ class Trainer:
 
     def _run_epoch(self, epoch):
         b_sz = len(next(iter(self.train_data)).input_ids)
-        print(f"[GPU{self.rank}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}", flush=True)
+        print(f"[GPU] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}", flush=True)
 
         for batch_number, batch in enumerate(tqdm(self.train_data)):
             loss = self._run_batch(batch)
             if (batch_number % 16 == 0):
-                self._log_loss_distributed(loss, world_size=self.world_size, epoch=epoch, batch_number=batch_number)
+                self._log_loss_distributed(loss, epoch=epoch, batch_number=batch_number)
 
     def _validate(self, epoch):
         total_loss = 0.0
@@ -129,14 +124,12 @@ class Trainer:
             loss = self._run_batch(batch, train=False)
             loss_tensor = loss.clone().detach().to(torch.float32)
 
-            if self.rank == 0:
-                total_loss += loss_tensor.item()
-                num_batches += 1
+            total_loss += loss_tensor.item()
+            num_batches += 1
 
-        if self.rank == 0:
-            avg_loss = total_loss / num_batches
-            with open("validation_loss.log", "a") as f:
-                f.write(f"Epoch {epoch:2d} | Validation Loss: {avg_loss:.3f}\n")
+        avg_loss = total_loss / num_batches
+        with open("validation_loss.log", "a") as f:
+            f.write(f"Epoch {epoch:2d} | Validation Loss: {avg_loss:.3f}\n")
 
     def _save_checkpoint(self, epoch):
         ckp = self.model.state_dict()
@@ -160,8 +153,7 @@ class Trainer:
                 with torch.no_grad():
                     self._validate(epoch)
 
-                if self.rank == 0:
-                    self._save_checkpoint(epoch)
+                self._save_checkpoint(epoch)
 
                 torch.cuda.empty_cache()
 
@@ -221,7 +213,7 @@ if __name__ == "__main__":
 
     gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
-    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping_csv)
+    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
     model = ContrastiveWSD(args.base_model, device=device, freeze_concept_encoder=args.freeze_concept_encoder)
     if (args.resume_from != 0):
@@ -231,11 +223,10 @@ if __name__ == "__main__":
 
     trainer = Trainer(
         model=model,
+        device=device,
         train_data=train_data,
         validation_data=validation_data,
         optimizer=optimizer,
-        world_size=args.world_size,
-        rank=args.rank,
         validate_every=args.validate_every,
         ukc=ukc,
         tokenizer=tokenizer,
