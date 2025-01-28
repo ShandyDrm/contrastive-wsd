@@ -1,5 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
+import torch.nn.functional as F
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
@@ -52,6 +53,8 @@ class Evaluator:
             hyponym_edges = hyponym_edges.to(self.device)
 
             input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, hypernym_tokens, hypernym_edges, hyponym_tokens, hyponym_edges, len(all_candidate_ids))
+            input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
+            gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
 
             for i, (start, end) in enumerate(candidate_id_ranges):
                 sentence_id = sentence_ids[i]

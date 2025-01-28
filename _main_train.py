@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
@@ -54,11 +55,14 @@ class Trainer:
         with open("loss.log", "a") as f:
             f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {loss_tensor:.3f}\n")
 
-    def _calculate_loss(self, input_embeddings, gnn_vector):
-        logits = torch.matmul(input_embeddings, gnn_vector.T)
+    def _calculate_loss(self, input_embeddings, gnn_vector, temperature=0.07):
+        input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
+        gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
+
+        logits = torch.matmul(input_embeddings, gnn_vector.T) * np.exp(temperature)
 
         labels_len = min(logits.shape[0], self.batch_size)
-        labels = torch.arange(labels_len).to(self.device)
+        labels = torch.arange(labels_len).to(self.rank)
 
         loss_i = self.loss_fn(logits, labels)
         logits_t = logits.T[:self.batch_size]
@@ -156,15 +160,6 @@ class Trainer:
                 self._save_checkpoint(epoch)
 
                 torch.cuda.empty_cache()
-
-def load_train_objs(base_model: str, device: str, tokenizer, resume_from: int=0, small=False, freeze_concept_encoder=True, ukc_num_neighbors=[8, 8]):
-    train_dataset, validation_dataset, _, ukc = load_dataset(tokenizer, small, ukc_num_neighbors)
-    model = ContrastiveWSD(base_model, device=device, freeze_concept_encoder=freeze_concept_encoder)
-    if (resume_from != 0):
-        model_name = f"checkpoint_{resume_from:02d}.pt"
-        model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
-    return train_dataset, validation_dataset, ukc, model, optimizer
 
 def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedTokenizer, pin_memory: bool):
     data_collator = TrainDataCollator(tokenizer=tokenizer)
