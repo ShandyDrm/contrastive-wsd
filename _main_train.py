@@ -59,7 +59,7 @@ class Trainer:
     def _log_loss_distributed(self, loss: torch.Tensor, epoch, batch_number):
         loss_tensor = loss.clone().detach().to(torch.float32)
         with open("loss.log", "a") as f:
-            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {avg_loss:.3f} | LR: {self.scheduler.get_last_lr()} | SchStep: {self.scheduler._step_count}\n")
+            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {loss_tensor:.3f} | LR: {self.scheduler.get_last_lr()} | SchStep: {self.scheduler._step_count}\n")
 
     def _log_gradient_norm(self, epoch: int, batch_number: int):
         total_gradient_norm = 0.0
