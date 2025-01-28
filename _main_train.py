@@ -59,7 +59,17 @@ class Trainer:
     def _log_loss_distributed(self, loss: torch.Tensor, epoch, batch_number):
         loss_tensor = loss.clone().detach().to(torch.float32)
         with open("loss.log", "a") as f:
-            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {loss_tensor:.3f}\n")
+            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {avg_loss:.3f} | LR: {self.scheduler.get_last_lr()} | SchStep: {self.scheduler._step_count}\n")
+
+    def _log_gradient_norm(self, epoch: int, batch_number: int):
+        total_gradient_norm = 0.0
+        for param in self.model.parameters():
+            if param.grad is not None:
+                total_gradient_norm += param.grad.data.norm(2).item() ** 2
+            total_gradient_norm = total_gradient_norm ** 0.5
+        
+        with open("gradient_norm.log", "a") as f:
+            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 
     def _calculate_loss(self, input_embeddings, gnn_vector, temperature=0.07):
         input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
@@ -131,6 +141,7 @@ class Trainer:
             loss = self._run_batch(batch)
             if (batch_number % 16 == 0):
                 self._log_loss_distributed(loss, epoch=epoch, batch_number=batch_number)
+                self._log_gradient_norm(epoch, batch_number)
 
     def _validate(self, epoch):
         total_loss = 0.0
@@ -229,7 +240,7 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
 
-    T_max = (len(train_data) * args.total_epochs) / (args.batch_size * args.scheduler_step)
+    T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
     scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
 
     trainer = Trainer(
