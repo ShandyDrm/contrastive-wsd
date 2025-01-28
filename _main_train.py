@@ -1,6 +1,8 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
+from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
@@ -21,6 +23,8 @@ class Trainer:
         train_data: DataLoader,
         validation_data: DataLoader,
         optimizer: torch.optim.Optimizer,
+        scheduler: LRScheduler,
+        scheduler_step: int,
         world_size: int,
         rank: int,
         validate_every: int,
@@ -36,6 +40,9 @@ class Trainer:
         self.train_data = train_data
         self.validation_data = validation_data
         self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.scheduler_step = scheduler_step
+        self.scheduler_counter = 0
         self.world_size = world_size
         self.rank = rank
         self.validate_every = validate_every
@@ -59,8 +66,11 @@ class Trainer:
             with open("loss.log", "a") as f:
                 f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {avg_loss:.3f}\n")
 
-    def _calculate_loss(self, input_embeddings, gnn_vector):
-        logits = torch.matmul(input_embeddings, gnn_vector.T)
+    def _calculate_loss(self, input_embeddings, gnn_vector, temperature=0.07):
+        input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
+        gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
+
+        logits = torch.matmul(input_embeddings, gnn_vector.T) * np.exp(temperature)
 
         labels_len = min(logits.shape[0], self.batch_size)
         labels = torch.arange(labels_len).to(self.rank)
@@ -105,6 +115,12 @@ class Trainer:
         if train:
             loss.backward()
             self.optimizer.step()
+            
+            if self.scheduler_counter == self.scheduler_step:
+                self.scheduler.step()
+                self.scheduler_counter = 0
+            else:
+                self.scheduler_counter += 1
 
         return loss
 
@@ -195,6 +211,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume_from', default=0, type=int, help='Resume training from which batch')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
+    parser.add_argument('--scheduler_step', type=int, default=16, help="update scheduler every n steps, default=16")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -218,12 +235,17 @@ if __name__ == "__main__":
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
 
+    T_max = (len(train_data) * args.total_epochs) / (args.batch_size * args.scheduler_step)
+    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
+
     world_size, rank = 1, 0
     trainer = Trainer(
         model=model,
         train_data=train_data,
         validation_data=validation_data,
         optimizer=optimizer,
+        scheduler=scheduler,
+        scheduler_step=args.scheduler_step,
         world_size=world_size,
         rank=rank,
         validate_every=args.validate_every,

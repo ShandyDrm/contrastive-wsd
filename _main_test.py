@@ -1,12 +1,13 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
+import torch.nn.functional as F
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from tqdm.auto import tqdm
 
 import csv
-from typing import List
+import numpy as np
 
 from model import ContrastiveWSD
 from dataset import load_dataset, TestDataCollator
@@ -31,6 +32,8 @@ class Evaluator:
         self.tokenizer = tokenizer
         self.batch_size = batch_size
 
+        self.temperature = 0.07
+
         DEFAULT_MAX_LENGTH = 512
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
 
@@ -49,10 +52,13 @@ class Evaluator:
 
             input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(all_candidate_ids))
 
+            input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
+            gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
+
             for i, (start, end) in enumerate(candidate_id_ranges):
                 sentence_id = sentence_ids[i]
                 sub_matrix = gnn_vector[start:end].T
-                pairwise_similarity = torch.matmul(input_embeddings[i], sub_matrix).tolist()
+                pairwise_similarity = (torch.matmul(input_embeddings[i], sub_matrix) * np.exp(self.temperature)).tolist()
                 candidate_ids = all_candidate_ids[start:end].tolist()
 
                 sorted_pairwise_similarity, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
