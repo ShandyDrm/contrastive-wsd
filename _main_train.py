@@ -18,13 +18,12 @@ class Trainer:
     def __init__(
         self,
         model: torch.nn.Module,
+        device: str,
         train_data: DataLoader,
         validation_data: DataLoader,
         optimizer: torch.optim.Optimizer,
         scheduler: LRScheduler,
         scheduler_step: int,
-        world_size: int,
-        rank: int,
         validate_every: int,
         ukc: UKC,
         tokenizer: PreTrainedTokenizer,
@@ -34,15 +33,14 @@ class Trainer:
         polysemy_sampler: PolysemySampler,
         lemma_sense_mapping: dict
     ) -> None:
-        self.model = model.to(rank)
+        self.model = model.to(device)
+        self.device = device
         self.train_data = train_data
         self.validation_data = validation_data
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.scheduler_step = scheduler_step
         self.scheduler_counter = 0
-        self.world_size = world_size
-        self.rank = rank
         self.validate_every = validate_every
         self.ukc = ukc
         self.tokenizer = tokenizer
@@ -56,13 +54,11 @@ class Trainer:
         DEFAULT_MAX_LENGTH = 512
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
 
-    def _log_loss_distributed(self, loss: torch.Tensor, world_size, epoch, batch_number):
+    def _log_loss_distributed(self, loss: torch.Tensor, epoch, batch_number):
         loss_tensor = loss.clone().detach().to(torch.float32)
 
-        if self.rank == 0:
-            avg_loss = loss_tensor.item() / world_size
-            with open("loss.log", "a") as f:
-                f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Average Loss: {avg_loss:.3f} | LR: {self.scheduler.get_last_lr()} | SchStep: {self.scheduler._step_count}\n")
+        with open("loss.log", "a") as f:
+            f.write(f"Epoch {epoch:2d} | Batch {batch_number:5d} | Average Loss: {loss_tensor:.3f} | LR: {self.scheduler.get_last_lr()[0]:.10f} | SchStep: {self.scheduler._step_count:5d}\n")
 
     def _log_gradient_norm(self, epoch: int, batch_number: int):
         total_gradient_norm = 0.0
@@ -78,7 +74,7 @@ class Trainer:
         logits = torch.matmul(input_embeddings, gnn_vector.T)
 
         labels_len = min(logits.shape[0], self.batch_size)
-        labels = torch.arange(labels_len).to(self.rank)
+        labels = torch.arange(labels_len).to(self.device)
 
         loss_i = self.loss_fn(logits, labels)
         logits_t = logits.T[:self.batch_size]
@@ -87,9 +83,9 @@ class Trainer:
         return loss
 
     def _run_batch(self, batch, train=True):
-        text_input_ids = batch["input_ids"].to(self.rank)
-        text_attention_mask = batch["attention_mask"].to(self.rank)
-        labels = batch["labels"].to(self.rank)
+        text_input_ids = batch["input_ids"].to(self.device)
+        text_attention_mask = batch["attention_mask"].to(self.device)
+        labels = batch["labels"].to(self.device)
 
         negative_from_polysemy = []
         for lemma, pos, label in zip(batch["lemmas"], batch["pos"], batch["labels"]):
@@ -108,8 +104,8 @@ class Trainer:
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
         glosses, edges = self.ukc.sample(all_samples_tensor)
-        tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.rank)
-        edges = edges.to(self.rank)
+        tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+        edges = edges.to(self.device)
 
         if train:
             self.optimizer.zero_grad()
@@ -131,12 +127,12 @@ class Trainer:
 
     def _run_epoch(self, epoch):
         b_sz = len(next(iter(self.train_data)).input_ids)
-        print(f"[GPU{self.rank}] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}", flush=True)
+        print(f"[GPU] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}", flush=True)
 
         for batch_number, batch in enumerate(tqdm(self.train_data)):
             loss = self._run_batch(batch)
             if (batch_number % 16 == 0):
-                self._log_loss_distributed(loss, world_size=self.world_size, epoch=epoch, batch_number=batch_number)
+                self._log_loss_distributed(loss, epoch=epoch, batch_number=batch_number)
                 self._log_gradient_norm(epoch, batch_number)
 
     def _validate(self, epoch):
@@ -147,14 +143,12 @@ class Trainer:
             loss = self._run_batch(batch, train=False)
             loss_tensor = loss.clone().detach().to(torch.float32)
 
-            if self.rank == 0:
-                total_loss += loss_tensor.item()
-                num_batches += 1
+            total_loss += loss_tensor.item()
+            num_batches += 1
 
-        if self.rank == 0:
-            avg_loss = total_loss / num_batches
-            with open("validation_loss.log", "a") as f:
-                f.write(f"Epoch {epoch:2d} | Validation Loss: {avg_loss:.3f}\n")
+        avg_loss = total_loss / num_batches
+        with open("validation_loss.log", "a") as f:
+            f.write(f"Epoch {epoch:2d} | Validation Loss: {avg_loss:.3f}\n")
 
     def _save_checkpoint(self, epoch):
         ckp = self.model.state_dict()
@@ -178,8 +172,7 @@ class Trainer:
                 with torch.no_grad():
                     self._validate(epoch)
 
-                if self.rank == 0:
-                    self._save_checkpoint(epoch)
+                self._save_checkpoint(epoch)
 
                 torch.cuda.empty_cache()
 
@@ -244,16 +237,14 @@ if __name__ == "__main__":
     T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
     scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
 
-    world_size, rank = 1, 0
     trainer = Trainer(
         model=model,
+        device=device,
         train_data=train_data,
         validation_data=validation_data,
         optimizer=optimizer,
         scheduler=scheduler,
         scheduler_step=args.scheduler_step,
-        world_size=world_size,
-        rank=rank,
         validate_every=args.validate_every,
         ukc=ukc,
         tokenizer=tokenizer,
