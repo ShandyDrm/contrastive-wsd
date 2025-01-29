@@ -119,7 +119,7 @@ class Trainer:
         if train:
             self.optimizer.zero_grad()
 
-        input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(labels))
+        input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(all_samples))
         loss = self._calculate_loss(input_embeddings, gnn_vector)
 
         if train:
