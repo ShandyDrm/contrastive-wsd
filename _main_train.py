@@ -1,7 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import CrossEntropyLoss
-import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
@@ -9,7 +8,6 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 from tqdm.auto import tqdm
 
 import csv
-import numpy as np
 
 from model import ContrastiveWSD
 from dataset import load_dataset, TrainDataCollator
@@ -76,11 +74,8 @@ class Trainer:
         with open("gradient_norm.log", "a") as f:
             f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 
-    def _calculate_loss(self, input_embeddings, gnn_vector, temperature=0.07):
-        input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
-        gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
-
-        logits = torch.matmul(input_embeddings, gnn_vector.T) * np.exp(temperature)
+    def _calculate_loss(self, input_embeddings, gnn_vector):
+        logits = torch.matmul(input_embeddings, gnn_vector.T)
 
         labels_len = min(logits.shape[0], self.batch_size)
         labels = torch.arange(labels_len).to(self.rank)
