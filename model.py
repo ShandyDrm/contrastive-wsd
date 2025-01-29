@@ -1,7 +1,7 @@
 from transformers import AutoModel
 
 import torch
-from torch.nn import BatchNorm1d, GELU, Dropout
+from torch.nn import LayerNorm, GELU, Dropout
 
 from torch_geometric.nn import Sequential, GATv2Conv
 
@@ -19,17 +19,17 @@ class ContrastiveWSD(torch.nn.Module):
                 param.requires_grad = False
 
         self.concept_gnn = Sequential('x, edge_index', [
-                (BatchNorm1d(self.gnn_hidden_size), 'x -> x'),
+                (LayerNorm(self.gnn_hidden_size), 'x -> x'),
                 GELU(),
                 Dropout(p=dropout_p),
 
                 (GATv2Conv(self.gnn_hidden_size, self.gnn_hidden_size), 'x, edge_index -> x'),
-                BatchNorm1d(self.gnn_hidden_size),
+                LayerNorm(self.gnn_hidden_size),
                 GELU(),
                 Dropout(p=dropout_p),
 
                 (GATv2Conv(self.gnn_hidden_size, self.gnn_hidden_size), 'x, edge_index -> x'),
-                BatchNorm1d(self.gnn_hidden_size),
+                LayerNorm(self.gnn_hidden_size),
                 GELU(),
                 Dropout(p=dropout_p),
             ]).to(device)
