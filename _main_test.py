@@ -100,7 +100,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
-    parser.add_argument('--cosine_similarity', default=False, type=bool, help='If enabled, will use cosine similarity for similarity measurement. Otherwise, will use dot product.')
 
     args = parser.parse_args()
 
