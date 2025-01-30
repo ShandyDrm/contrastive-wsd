@@ -211,6 +211,7 @@ if __name__ == "__main__":
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
     parser.add_argument('--scheduler_step', type=int, default=16, help="update scheduler every n steps, default=16")
+    parser.add_argument('--learning_rate', type=float, default=1e-5, help="learning rate, default=1e-5")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -232,7 +233,7 @@ if __name__ == "__main__":
         model_name = f"checkpoint_{args.resume_from:02d}.pt"
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
     T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
     scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
