@@ -22,7 +22,8 @@ class Evaluator:
         validation_data: DataLoader,
         ukc: UKC,
         tokenizer: PreTrainedTokenizer,
-        batch_size: int
+        batch_size: int,
+        cosine_similarity: bool
     ) -> None:
         self.id = id
         self.model = model.to(device)
@@ -31,6 +32,7 @@ class Evaluator:
         self.ukc = ukc
         self.tokenizer = tokenizer
         self.batch_size = batch_size
+        self.cosine_similarity = cosine_similarity
 
         self.temperature = 0.07
 
@@ -52,8 +54,9 @@ class Evaluator:
 
             input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(all_candidate_ids))
 
-            input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
-            gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
+            if self.cosine_similarity:
+                input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
+                gnn_vector = F.normalize(gnn_vector, p=2, dim=1)
 
             for i, (start, end) in enumerate(candidate_id_ranges):
                 sentence_id = sentence_ids[i]
@@ -103,6 +106,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
+    parser.add_argument('--cosine_similarity', default=False, type=bool, help='If enabled, will use cosine similarity for similarity measurement. Otherwise, will use dot product.')
 
     args = parser.parse_args()
 
@@ -123,6 +127,7 @@ if __name__ == "__main__":
             validation_data=test_data,
             ukc=ukc,
             tokenizer=tokenizer,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
+            cosine_similarity=args.cosine_similarity
         )
         evaluator.validate()
