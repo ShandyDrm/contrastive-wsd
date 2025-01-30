@@ -77,7 +77,7 @@ class Trainer:
         labels = torch.arange(labels_len).to(self.device)
 
         loss_i = self.loss_fn(logits, labels)
-        logits_t = logits.T[:self.batch_size]
+        logits_t = logits.T[:labels_len]
         loss_t = self.loss_fn(logits_t, labels)
         loss = (loss_i + loss_t)/2
         return loss
