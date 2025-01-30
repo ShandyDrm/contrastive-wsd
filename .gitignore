@@ -176,3 +176,5 @@ cython_debug/
 *.txt
 *.tar.gz
 analysis.py
+analysis/
+evaluation/
