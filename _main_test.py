@@ -72,11 +72,11 @@ class Evaluator:
                 top1 = [sentence_id] + list(sorted_candidate_ids[:1])
                 all_top1.append(top1)
 
-        with open(f"08-GlossNoise-Norm-{int(self.id):02d}.txt", 'w') as file:
+        with open(f"result-epoch{int(self.id):02d}.txt", 'w') as file:
             writer = csv.writer(file, delimiter=' ')
             writer.writerows(all_top1)
 
-        with open(f"08-GlossNoise-Norm-{int(self.id):02d}-Scores.csv", 'w') as file:
+        with open(f"result-epoch{int(self.id):02d}-scores.csv", 'w') as file:
             writer = csv.writer(file)
             writer.writerows(all_scores)
 
