@@ -72,13 +72,7 @@ class Evaluator:
                 top1 = [sentence_id] + list(sorted_candidate_ids[:1])
                 all_top1.append(top1)
 
-        with open(f"result-epoch{int(self.id):02d}.txt", 'w') as file:
-            writer = csv.writer(file, delimiter=' ')
-            writer.writerows(all_top1)
-
-        with open(f"result-epoch{int(self.id):02d}-scores.csv", 'w') as file:
-            writer = csv.writer(file)
-            writer.writerows(all_scores)
+        return all_top1, all_scores
 
 def load_model(base_model: str, load_file: str, device: str):
     model = ContrastiveWSD(base_model, device=device, freeze_concept_encoder=True)
@@ -100,7 +94,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='simple distributed training job')
     parser.add_argument('--seed', default=42, type=int, help='Seed to be used for random number generators')
-    parser.add_argument("--ids", nargs='+', help='For logging purposes')
+    parser.add_argument("--epochs", nargs='+', help='Which model epoch to pick')
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument("--load_files", nargs='+', help='Which file to load')
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
@@ -118,16 +112,26 @@ if __name__ == "__main__":
     _, _, test_dataset, ukc = load_dataset(tokenizer, args.small, args.ukc_num_neighbors)
     test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
 
-    for id, load_file in zip(args.ids, args.load_files):
-        model = load_model(args.base_model, load_file, device)
-        evaluator = Evaluator(
-            id=id,
-            model=model,
-            device=device,
-            validation_data=test_data,
-            ukc=ukc,
-            tokenizer=tokenizer,
-            batch_size=args.batch_size,
-            cosine_similarity=args.cosine_similarity
-        )
-        evaluator.validate()
+    for epoch in args.epochs:
+        filename = f"checkpoint_{epoch:02d}.pt"
+        for cosine_similarity in [False, True]:
+            model = load_model(args.base_model, filename, device)
+            evaluator = Evaluator(
+                id=id,
+                model=model,
+                device=device,
+                validation_data=test_data,
+                ukc=ukc,
+                tokenizer=tokenizer,
+                batch_size=args.batch_size,
+                cosine_similarity=cosine_similarity
+            )
+            all_top1, all_scores = evaluator.validate()
+
+            with open(f"Result-Epoch_{epoch:02d}-CosineSim_{cosine_similarity}.txt", 'w') as file:
+                writer = csv.writer(file, delimiter=' ')
+                writer.writerows(all_top1)
+
+            with open(f"Result-Epoch_{epoch:02d}-CosineSim_{cosine_similarity}-Scores.csv", 'w') as file:
+                writer = csv.writer(file)
+                writer.writerows(all_scores)
