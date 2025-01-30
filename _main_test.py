@@ -96,6 +96,7 @@ def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedT
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='simple distributed training job')
+    parser.add_argument('--seed', default=42, type=int, help='Seed to be used for random number generators')
     parser.add_argument("--ids", nargs='+', help='For logging purposes')
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument("--load_files", nargs='+', help='Which file to load')
@@ -104,6 +105,8 @@ if __name__ == "__main__":
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
 
     args = parser.parse_args()
+
+    torch.manual_seed(args.seed)
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
