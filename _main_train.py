@@ -22,6 +22,7 @@ class Trainer:
         train_data: DataLoader,
         validation_data: DataLoader,
         optimizer: torch.optim.Optimizer,
+        use_scheduler: bool,
         scheduler: LRScheduler,
         scheduler_step: int,
         validate_every: int,
@@ -38,6 +39,7 @@ class Trainer:
         self.train_data = train_data
         self.validation_data = validation_data
         self.optimizer = optimizer
+        self.use_scheduler = use_scheduler
         self.scheduler = scheduler
         self.scheduler_step = scheduler_step
         self.scheduler_counter = 0
@@ -116,12 +118,13 @@ class Trainer:
         if train:
             loss.backward()
             self.optimizer.step()
-            
-            if self.scheduler_counter == self.scheduler_step:
-                self.scheduler.step()
-                self.scheduler_counter = 0
-            else:
-                self.scheduler_counter += 1
+
+            if self.use_scheduler:
+                if self.scheduler_counter == self.scheduler_step:
+                    self.scheduler.step()
+                    self.scheduler_counter = 0
+                else:
+                    self.scheduler_counter += 1
 
         return loss
 
@@ -210,6 +213,7 @@ if __name__ == "__main__":
     parser.add_argument('--resume_from', default=0, type=int, help='Resume training from which batch')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
+    parser.add_argument('--use_scheduler', type=bool, default=False, help="use scheduler during training")
     parser.add_argument('--scheduler_step', type=int, default=16, help="update scheduler every n steps, default=16")
     parser.add_argument('--learning_rate', type=float, default=1e-5, help="learning rate, default=1e-5")
     args = parser.parse_args()
@@ -244,6 +248,7 @@ if __name__ == "__main__":
         train_data=train_data,
         validation_data=validation_data,
         optimizer=optimizer,
+        use_scheduler=args.use_scheduler,
         scheduler=scheduler,
         scheduler_step=args.scheduler_step,
         validate_every=args.validate_every,
