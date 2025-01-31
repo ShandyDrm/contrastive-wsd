@@ -5,18 +5,17 @@ from torch.nn import Linear, LayerNorm, GELU, Dropout, Sequential
 from torch_geometric.nn import GATv2Conv
 
 class ContrastiveWSD(torch.nn.Module):
-    def __init__(self, base_model: str, hidden_size: int=256, device="cpu", freeze_concept_encoder=True, dropout_p=0.1):
+    def __init__(self,
+                 base_model: str,
+                 hidden_size: int = 256,
+                 device: str = "cpu",
+                 dropout_p: float = 0.1):
         super().__init__()
 
-        self.word_encoder = AutoModel.from_pretrained(base_model).to(device)
-        self.concept_encoder = AutoModel.from_pretrained(base_model).to(device)
+        self.encoder = AutoModel.from_pretrained(base_model).to(device)
 
-        self.encoder_size = self.concept_encoder.config.hidden_size
+        self.encoder_size = self.encoder.config.hidden_size
         self.hidden_size = hidden_size
-
-        if freeze_concept_encoder:
-            for param in self.concept_encoder.parameters():
-                param.requires_grad = False
 
         def get_norm_gelu_dropout(hidden_size, dropout_p, device):
             return Sequential(
@@ -45,11 +44,11 @@ class ContrastiveWSD(torch.nn.Module):
                 gat_embeddings = gat_layer(embeddings, edges)
                 return gat_embeddings, None
 
-        input_embeddings = self.word_encoder(text_input_ids, text_attention_mask).last_hidden_state[:, 0, :]
+        input_embeddings = self.encoder(text_input_ids, text_attention_mask).last_hidden_state[:, 0, :]
         input_embeddings = self.word_linear(input_embeddings)
         input_embeddings = self.word_norm_gelu_dropout1(input_embeddings)
 
-        glosses_embeddings = self.concept_encoder(**tokenized_glosses).last_hidden_state[:, 0, :]
+        glosses_embeddings = self.encoder(**tokenized_glosses).last_hidden_state[:, 0, :]
         glosses_embeddings = self.concept_linear(glosses_embeddings)
         glosses_embeddings = self.concept_norm_gelu_dropout1(glosses_embeddings)
 

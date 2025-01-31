@@ -209,7 +209,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
-    parser.add_argument('--freeze_concept_encoder', default=True, type=bool, help='Freeze concept encoder')
     parser.add_argument('--resume_from', default=0, type=int, help='Resume training from which batch')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
@@ -233,7 +232,7 @@ if __name__ == "__main__":
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
-    model = ContrastiveWSD(args.base_model, hidden_size=args.hidden_size, device=device, freeze_concept_encoder=args.freeze_concept_encoder)
+    model = ContrastiveWSD(args.base_model, hidden_size=args.hidden_size, device=device)
     if (args.resume_from != 0):
         model_name = f"checkpoint_{args.resume_from:02d}.pt"
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))

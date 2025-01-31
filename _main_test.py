@@ -75,7 +75,7 @@ class Evaluator:
         return all_top1, all_scores
 
 def load_model(base_model: str, load_file: str, device: str):
-    model = ContrastiveWSD(base_model, device=device, freeze_concept_encoder=True)
+    model = ContrastiveWSD(base_model, device=device)
     if load_file:
         model.load_state_dict(torch.load(load_file, weights_only=True, map_location=torch.device(device)))
     return model
