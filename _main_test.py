@@ -74,12 +74,6 @@ class Evaluator:
 
         return all_top1, all_scores
 
-def load_model(base_model: str, load_file: str, device: str):
-    model = ContrastiveWSD(base_model, device=device)
-    if load_file:
-        model.load_state_dict(torch.load(load_file, weights_only=True, map_location=torch.device(device)))
-    return model
-
 def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedTokenizer):
     data_collator = TestDataCollator(tokenizer=tokenizer)
     return DataLoader(
@@ -100,6 +94,10 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
+    parser.add_argument('--hidden_size', type=int, default=256, help="hidden size for the model")
+    parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
+    parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
+    parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
 
     args = parser.parse_args()
 
@@ -112,9 +110,20 @@ if __name__ == "__main__":
     test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
 
     for epoch in args.epochs:
+        epoch = int(epoch)
         filename = f"checkpoint_{epoch:02d}.pt"
         for cosine_similarity in [False, True]:
-            model = load_model(args.base_model, filename, device)
+            model = ContrastiveWSD(
+                args.base_model,
+                hidden_size=args.hidden_size,
+                gat_heads=args.gat_heads,
+                gat_self_loops=args.gat_self_loops,
+                gat_residual=args.gat_residual
+            ).to(device)
+
+            if filename:
+                model.load_state_dict(torch.load(filename, weights_only=True, map_location=torch.device(device)))
+
             evaluator = Evaluator(
                 id=id,
                 model=model,
