@@ -8,33 +8,35 @@ class ContrastiveWSD(torch.nn.Module):
     def __init__(self,
                  base_model: str,
                  hidden_size: int = 256,
-                 device: str = "cpu",
-                 dropout_p: float = 0.1):
+                 dropout_p: float = 0.1,
+                 gat_heads: int = 1,
+                 gat_self_loops: bool = True,
+                 gat_residual: bool = False):
         super().__init__()
 
-        self.encoder = AutoModel.from_pretrained(base_model).to(device)
+        self.encoder = AutoModel.from_pretrained(base_model)
 
         self.encoder_size = self.encoder.config.hidden_size
         self.hidden_size = hidden_size
 
-        def get_norm_gelu_dropout(hidden_size, dropout_p, device):
+        def get_norm_gelu_dropout(hidden_size, dropout_p):
             return Sequential(
                 LayerNorm(hidden_size),
                 GELU(),
                 Dropout(p=dropout_p)
-            ).to(device)
+            )
 
         self.word_linear = Linear(self.encoder_size, self.hidden_size)
-        self.word_norm_gelu_dropout1 = get_norm_gelu_dropout(self.hidden_size, dropout_p, device)
+        self.word_norm_gelu_dropout1 = get_norm_gelu_dropout(self.hidden_size, dropout_p)
 
         self.concept_linear = Linear(self.encoder_size, self.hidden_size)
-        self.concept_norm_gelu_dropout1 = get_norm_gelu_dropout(self.hidden_size, dropout_p, device)
+        self.concept_norm_gelu_dropout1 = get_norm_gelu_dropout(self.hidden_size, dropout_p)
 
-        self.gat2 = GATv2Conv(self.hidden_size, self.hidden_size).to(device)
-        self.concept_norm_gelu_dropout2 = get_norm_gelu_dropout(self.hidden_size, dropout_p, device)
+        self.gat2 = GATv2Conv(self.hidden_size, self.hidden_size, heads=gat_heads, add_self_loops=gat_self_loops, residual=gat_residual)
+        self.concept_norm_gelu_dropout2 = get_norm_gelu_dropout(self.hidden_size, dropout_p)
 
-        self.gat3 = GATv2Conv(self.hidden_size, self.hidden_size).to(device)
-        self.concept_norm_gelu_dropout3 = get_norm_gelu_dropout(self.hidden_size, dropout_p, device)
+        self.gat3 = GATv2Conv(self.hidden_size, self.hidden_size, heads=gat_heads, add_self_loops=gat_self_loops, residual=gat_residual)
+        self.concept_norm_gelu_dropout3 = get_norm_gelu_dropout(self.hidden_size, dropout_p)
 
     def forward(self, text_input_ids, text_attention_mask, tokenized_glosses, edges, labels_size, return_attention_weights=False):
         def gat_forward(gat_layer: GATv2Conv, embeddings, edges, return_attention_weights):

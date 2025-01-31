@@ -232,7 +232,7 @@ if __name__ == "__main__":
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
-    model = ContrastiveWSD(args.base_model, hidden_size=args.hidden_size, device=device)
+    model = ContrastiveWSD(args.base_model, hidden_size=args.hidden_size).to(device)
     if (args.resume_from != 0):
         model_name = f"checkpoint_{args.resume_from:02d}.pt"
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
