@@ -216,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_scheduler', type=bool, default=False, help="use scheduler during training")
     parser.add_argument('--scheduler_step', type=int, default=16, help="update scheduler every n steps, default=16")
     parser.add_argument('--learning_rate', type=float, default=1e-5, help="learning rate, default=1e-5")
+    parser.add_argument('--hidden_size', type=int, default=256, help="hidden size for the model")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -232,7 +233,7 @@ if __name__ == "__main__":
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
-    model = ContrastiveWSD(args.base_model, device=device, freeze_concept_encoder=args.freeze_concept_encoder)
+    model = ContrastiveWSD(args.base_model, hidden_size=args.hidden_size, device=device, freeze_concept_encoder=args.freeze_concept_encoder)
     if (args.resume_from != 0):
         model_name = f"checkpoint_{args.resume_from:02d}.pt"
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
