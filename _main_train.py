@@ -68,7 +68,7 @@ class Trainer:
             if param.grad is not None:
                 total_gradient_norm += param.grad.data.norm(2).item() ** 2
             total_gradient_norm = total_gradient_norm ** 0.5
-        
+
         with open("gradient_norm.log", "a") as f:
             f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 

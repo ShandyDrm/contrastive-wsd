@@ -23,7 +23,7 @@ class ContrastiveWSD(torch.nn.Module):
                 GELU(),
                 Dropout(p=dropout_p)
             ).to(device)
-        
+
         self.word_linear = Linear(self.encoder_size, self.hidden_size)
         self.word_norm_gelu_dropout1 = get_norm_gelu_dropout(self.hidden_size, dropout_p, device)
 
@@ -55,7 +55,7 @@ class ContrastiveWSD(torch.nn.Module):
         glosses_embeddings, attention_weights_gat2 = gat_forward(self.gat2, glosses_embeddings, edges, return_attention_weights)
         glosses_embeddings = self.concept_norm_gelu_dropout2(glosses_embeddings)
 
-        glosses_embeddings, attention_weights_gat3 = gat_forward(self.gat3, glosses_embeddings, edges, return_attention_weights)            
+        glosses_embeddings, attention_weights_gat3 = gat_forward(self.gat3, glosses_embeddings, edges, return_attention_weights)
         glosses_embeddings = self.concept_norm_gelu_dropout3(glosses_embeddings)
 
         gnn_vector = glosses_embeddings[:labels_size] # because the subgraphs also include surrounding nodes
