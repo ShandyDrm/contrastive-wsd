@@ -120,6 +120,7 @@ if __name__ == "__main__":
                 gat_self_loops=args.gat_self_loops,
                 gat_residual=args.gat_residual
             ).to(device)
+            model.eval()
 
             if filename:
                 model.load_state_dict(torch.load(filename, weights_only=True, map_location=torch.device(device)))
