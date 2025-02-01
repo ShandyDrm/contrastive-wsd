@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import pandas as pd
 import csv
 
@@ -6,7 +8,7 @@ from torch.utils.data import Dataset
 
 from ukc import UKC
 
-from transformers import DataCollatorWithPadding
+from transformers import DataCollatorWithPadding, PreTrainedTokenizer
 
 def process_edges(filename, mapping):
     print("start processing edges", flush=True)
@@ -32,161 +34,180 @@ def process_edges(filename, mapping):
     print("end mapping edges\n", flush=True)
     return mapped_edges
 
-def convert_candidate_ids(mapping, candidate_ids):
-    return [mapping[c] for c in candidate_ids]
-
-def parse_candidate_ids(candidate_ids_string):
-    ids = candidate_ids_string.replace("'", "").split(" ")
-    ids = list(map(int, ids))
-    return ids
-
-def read_train_csv_to_dataframe(csv_filename, ukc_gnn_mapping, small=False):
-    df = pd.read_csv(csv_filename)
-    df["text"] = df.apply(lambda row: f"{row['word']} [SEP] {row['sentence']}", axis=1)
-    df["candidate_ids"] = df.apply(lambda row: parse_candidate_ids(row["candidate_ids"]), axis=1)
-    df['gnn_id'] = df.apply(lambda row: ukc_gnn_mapping[row['ukc_id']], axis=1)
-    df['gnn_candidate_ids'] = df.apply(lambda row: convert_candidate_ids(ukc_gnn_mapping, row["candidate_ids"]), axis=1)
-    df = df[["id", "lemma", "pos", "text", "gnn_id", "gnn_candidate_ids", "target_index"]]
-
-    if small:
-        df = df.loc[:100]
-
-    return df
-
-def read_test_csv_to_dataframe(csv_filename, ukc_gnn_mapping, small=False):
-    df = pd.read_csv(csv_filename)
-    df["text"] = df.apply(lambda row: f"{row['word']} [SEP] {row['sentence']}", axis=1)
-    df["candidate_ids"] = df.apply(lambda row: parse_candidate_ids(row["candidate_ids"]), axis=1)
-    df['gnn_candidate_ids'] = df.apply(lambda row: convert_candidate_ids(ukc_gnn_mapping, row["candidate_ids"]), axis=1)
-    df = df[["id", "text", "gnn_candidate_ids"]]
-
-    if small:
-        df = df.loc[:100]
-
-    return df
-
 class TrainDataset(Dataset):
-    def __init__(self, lemmas, pos, texts, labels, tokenizer, max_length):
-        self.lemmas = lemmas
-        self.pos = pos
-        self.texts = texts
-        self.labels = labels
+    def __init__(self, df: pd.DataFrame, tokenizer: PreTrainedTokenizer):
+        self.id = list(df["id"])
+        self.lemma = list(df["lemma"])
+        self.pos = list(df["pos"])
+        self.loc = list(df["loc"])
+        self.sentence = list(df["sentence"])
+        self.answers_ukc = list(df["answers_ukc"])
+
         self.tokenizer = tokenizer
-        self.max_length = max_length
 
     def __len__(self):
-        return len(self.texts)
+        return len(self.id)
 
-    def __getitem__(self, idx):
-        # Tokenize the text
-        inputs = self.tokenizer(
-            self.texts[idx],
-            max_length=self.max_length,
-            truncation=True,
-            padding="max_length",
-            return_tensors="pt"
+    def __getitem__(self, idx: int):
+        encoding = self.tokenizer(
+            self.sentence[idx],
+            is_split_into_words=True,
+            return_tensors="pt",
+            padding=True,
+            truncation=True
         )
+
         return {
-            "lemmas": self.lemmas[idx],
+            "id": self.id[idx],
+            "lemma": self.lemma[idx],
             "pos": self.pos[idx],
-            "input_ids": inputs["input_ids"].squeeze(),
-            "attention_mask": inputs["attention_mask"].squeeze(),
-            "labels": torch.tensor(self.labels[idx], dtype=torch.long),
+            "loc": self.loc[idx],
+            "input_ids": encoding["input_ids"].squeeze(),
+            "attention_mask": encoding["attention_mask"].squeeze(),
+            "answers_ukc": self.answers_ukc[idx],
         }
 
 class TestDataset(Dataset):
-    def __init__(self, ids, texts, candidate_ids, tokenizer, max_length):
-        self.ids = ids
-        self.texts = texts
-        self.candidate_ids = candidate_ids
+    def __init__(self, df: pd.DataFrame, tokenizer: PreTrainedTokenizer):
+        self.id = list(df["id"])
+        self.lemma = list(df["lemma"])
+        self.pos = list(df["pos"])
+        self.loc = list(df["loc"])
+        self.sentence = list(df["sentence"])
+        self.candidates_ukc = list(df["candidates_ukc"])
+
         self.tokenizer = tokenizer
-        self.max_length = max_length
 
     def __len__(self):
-        return len(self.texts)
+        return len(self.id)
 
-    def __getitem__(self, idx):
-        # Tokenize the text
-        inputs = self.tokenizer(
-            self.texts[idx],
-            max_length=self.max_length,
-            truncation=True,
-            padding="max_length",
-            return_tensors="pt"
+    def __getitem__(self, idx: int):
+        encoding = self.tokenizer(
+            self.sentence[idx],
+            is_split_into_words=True,
+            return_tensors="pt",
+            padding=True,
+            truncation=True
         )
-        return {
-            "ids": self.ids[idx],
-            "input_ids": inputs["input_ids"].squeeze(),
-            "attention_mask": inputs["attention_mask"].squeeze(),
-            "candidate_ids": self.candidate_ids[idx],
-        }
 
+        return {
+            "id": self.id[idx],
+            "lemma": self.lemma[idx],
+            "pos": self.pos[idx],
+            "loc": self.loc[idx],
+            "input_ids": encoding["input_ids"].squeeze(),
+            "attention_mask": encoding["attention_mask"].squeeze(),
+            "candidates_ukc": self.candidates_ukc[idx],
+        }
+    
 class TrainDataCollator(DataCollatorWithPadding):
     def __call__(self, features):
         filtered_features = [
-            {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask", "token_type_ids", "labels"]}
+            {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask"]}
             for feature in features
         ]
 
         batch = super().__call__(filtered_features)
 
-        lemmas = []
-        pos = []
+        id, lemma, pos, loc, answers_ukc = [], [], [], [], []
 
         for feature in features:
-            lemmas.append(feature["lemmas"])
+            id.append(feature["id"])
+            lemma.append(feature["lemma"])
             pos.append(feature["pos"])
+            loc.append(feature["loc"])
+            answers_ukc.append(feature["answers_ukc"])
 
-        batch["lemmas"] = lemmas
+        batch["id"] = id
+        batch["lemma"] = lemma
         batch["pos"] = pos
+        batch["loc"] = loc
+        batch["answers_ukc"] = answers_ukc
         return batch
-
+    
 class TestDataCollator(DataCollatorWithPadding):
     def __call__(self, features):
         filtered_features = [
-            {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask", "token_type_ids", "labels"]}
+            {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask"]}
             for feature in features
         ]
 
         batch = super().__call__(filtered_features)
 
-        sentence_ids = []
-        all_candidate_ids = []
-        candidate_id_ranges = []
+        id, lemma, pos, loc, candidates_ukc, candidate_id_ranges = [], [], [], [], [], []
+
         current_index = 0
-
         for feature in features:
-            sentence_ids.append(feature["ids"])
+            id.append(feature["id"])
+            lemma.append(feature["lemma"])
+            pos.append(feature["pos"])
+            loc.append(feature["loc"])
 
-            candidates = feature["candidate_ids"]
-            all_candidate_ids.extend(candidates)
+            candidates_ukc.extend(feature["candidates_ukc"])
 
-            candidate_id_ranges.append((current_index, current_index + len(candidates)))
-            current_index += len(candidates)
+            candidate_id_ranges.append((current_index, current_index + len(candidates_ukc)))
+            current_index += len(candidates_ukc)
 
-        batch["ids"] = sentence_ids
-        batch["all_candidate_ids"] = torch.tensor(all_candidate_ids)
+        batch["id"] = id
+        batch["lemma"] = lemma
+        batch["pos"] = pos
+        batch["loc"] = loc
+        batch["candidates_ukc"] = candidates_ukc
         batch["candidate_id_ranges"] = candidate_id_ranges
         return batch
 
-def load_dataset(tokenizer, small=False, ukc_num_neighbors=[8, 8]):
+def convert_ukc_to_gnn(row, key, ukc_gnn_mapping):
+    lst = row[key]
+    gnn_ids = []
+    for i in lst:
+        if i in ukc_gnn_mapping:
+            gnn_ids.append(ukc_gnn_mapping[i])
+        else:
+            return None
+
+    return gnn_ids
+
+def parse_train_file(train_filename: str, ukc_gnn_mapping: dict, small: bool=False):
+    train_df = pd.read_json(train_filename)
+    train_df["answers_ukc"] = train_df.apply(lambda row: convert_ukc_to_gnn(row, "answers", ukc_gnn_mapping), axis=1)
+    train_df = train_df[train_df["answers_ukc"].notnull()]
+
+    if small:
+        return train_df[:100]
+    return train_df
+
+def parse_test_file(test_filename: str, ukc_gnn_mapping: dict, small: bool=False):
+    test_df = pd.read_json(test_filename)
+    test_df["candidates_ukc"] = test_df.apply(lambda row: convert_ukc_to_gnn(row, "candidates", ukc_gnn_mapping), axis=1)
+    test_df = test_df[test_df["candidates_ukc"].notnull()]
+
+    if small:
+        return test_df[:100]
+    return test_df
+
+def load_dataset(
+        tokenizer: PreTrainedTokenizer,
+        train_filename: str,
+        eval_filename: str,
+        test_filename: str,
+        small: bool=False,
+        ukc_num_neighbors: list=[8, 8]
+    ) -> Tuple[TrainDataset, TestDataset, TestDataset, UKC]:
+
     ukc_df = pd.read_csv("ukc.csv")
     ukc_gnn_mapping = dict(zip(ukc_df['ukc_id'], ukc_df['gnn_id']))
 
-    train_df = read_train_csv_to_dataframe("SemCor_Train_New.csv", ukc_gnn_mapping, small)
-    validate_df = read_train_csv_to_dataframe("SemCor_Validate_New.csv", ukc_gnn_mapping, small)
-    test_df = read_test_csv_to_dataframe("TestALL_Converted.csv", ukc_gnn_mapping, small)
+    train_df = parse_train_file(train_filename, ukc_gnn_mapping, small)
+    eval_df = parse_test_file(eval_filename, ukc_gnn_mapping, small)
+    test_df = parse_test_file(test_filename, ukc_gnn_mapping, small)
 
-    DEFAULT_MAX_LENGTH = 512
-    max_length = min(tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
-
-    train_dataset = TrainDataset(train_df["lemma"], train_df["pos"], list(train_df["text"]), train_df["gnn_id"], tokenizer, max_length)
-    validation_dataset = TrainDataset(train_df["lemma"], train_df["pos"], list(validate_df["text"]), validate_df["gnn_id"], tokenizer, max_length)
-    test_dataset = TestDataset(test_df["id"], list(test_df["text"]), test_df["gnn_candidate_ids"], tokenizer, max_length)
+    train_dataset = TrainDataset(train_df, tokenizer)
+    eval_dataset = TestDataset(eval_df, tokenizer)
+    test_dataset = TestDataset(test_df, tokenizer)
 
     edges = process_edges("edges.csv", ukc_gnn_mapping)
     ukc = UKC(ukc_df, edges, ukc_num_neighbors)
 
     print("End data preprocessing", flush=True)
 
-    return train_dataset, validation_dataset, test_dataset, ukc
+    return train_dataset, eval_dataset, test_dataset, ukc

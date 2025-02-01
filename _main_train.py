@@ -20,7 +20,7 @@ class Trainer:
         model: torch.nn.Module,
         device: str,
         train_data: DataLoader,
-        validation_data: DataLoader,
+        eval_data: DataLoader,
         optimizer: torch.optim.Optimizer,
         use_scheduler: bool,
         scheduler: LRScheduler,
@@ -37,7 +37,7 @@ class Trainer:
         self.model = model.to(device)
         self.device = device
         self.train_data = train_data
-        self.validation_data = validation_data
+        self.eval_data = eval_data
         self.optimizer = optimizer
         self.use_scheduler = use_scheduler
         self.scheduler = scheduler
@@ -142,7 +142,7 @@ class Trainer:
         total_loss = 0.0
         num_batches = 0
 
-        for batch in self.validation_data:
+        for batch in self.eval_data:
             loss = self._run_batch(batch, train=False)
             loss_tensor = loss.clone().detach().to(torch.float32)
 
@@ -216,6 +216,11 @@ if __name__ == "__main__":
     parser.add_argument('--scheduler_step', type=int, default=16, help="update scheduler every n steps, default=16")
     parser.add_argument('--learning_rate', type=float, default=1e-5, help="learning rate, default=1e-5")
     parser.add_argument('--hidden_size', type=int, default=256, help="hidden size for the model")
+
+    parser.add_argument('--train_filename', type='str', default='train.complete.data.json')
+    parser.add_argument('--eval_filename', type='str', default='eval.complete.data.json')
+    parser.add_argument('--test_filename', type='str', default='test.complete.data.json')
+
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
@@ -227,9 +232,12 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
 
-    train_dataset, validation_dataset, _, ukc = load_dataset(tokenizer, args.small, args.ukc_num_neighbors)
+    train_dataset, eval_dataset, _, ukc = load_dataset(
+        tokenizer, args.train_filename, args.eval_filename, args.test_filename, args.small, args.ukc_num_neighbors
+    )
+
     train_data = prepare_dataloader(train_dataset, args.batch_size, tokenizer, pin_memory=True)
-    validation_data = prepare_dataloader(validation_dataset, args.batch_size, tokenizer, pin_memory=False)
+    eval_data = prepare_dataloader(eval_dataset, args.batch_size, tokenizer, pin_memory=False)
 
     gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
@@ -256,7 +264,7 @@ if __name__ == "__main__":
         model=model,
         device=device,
         train_data=train_data,
-        validation_data=validation_data,
+        eval_data=eval_data,
         optimizer=optimizer,
         use_scheduler=args.use_scheduler,
         scheduler=scheduler,
