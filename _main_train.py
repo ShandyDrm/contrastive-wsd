@@ -1,6 +1,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
@@ -8,6 +9,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 from tqdm.auto import tqdm
 
 import csv
+import numpy as np
 
 from model import ContrastiveWSD
 from dataset import load_dataset, TrainDataCollator
@@ -32,7 +34,8 @@ class Trainer:
         resume_from: int,
         gloss_sampler: GlossSampler,
         polysemy_sampler: PolysemySampler,
-        lemma_sense_mapping: dict
+        lemma_sense_mapping: dict,
+        cosine_similarity: bool
     ) -> None:
         self.model = model.to(device)
         self.device = device
@@ -51,6 +54,7 @@ class Trainer:
         self.gloss_sampler = gloss_sampler
         self.polysemy_sampler = polysemy_sampler
         self.lemma_sense_mapping = lemma_sense_mapping
+        self.cosine_similarity = cosine_similarity
         self.loss_fn = CrossEntropyLoss()
 
         DEFAULT_MAX_LENGTH = 512
@@ -72,8 +76,11 @@ class Trainer:
         with open("gradient_norm.log", "a") as f:
             f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 
-    def _calculate_loss(self, input_embeddings, gnn_vector):
-        logits = torch.matmul(input_embeddings, gnn_vector.T)
+    def _calculate_loss(self, input_embeddings, gnn_vector, temperature=0.07):
+        if self.cosine_similarity:
+            logits = F.cosine_similarity(input_embeddings.unsqueeze(1), gnn_vector, dim=2) * np.exp(temperature)
+        else:
+            logits = torch.matmul(input_embeddings, gnn_vector.T)
 
         labels_len = min(logits.shape[0], self.batch_size)
         labels = torch.arange(labels_len).to(self.device)
@@ -219,6 +226,7 @@ if __name__ == "__main__":
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
+    parser.add_argument('--cosine_similarity', type=bool, default=False, help="if enabled then will use cosine similarity as similarity measure, otherwise will use dot product, default=False")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -268,5 +276,6 @@ if __name__ == "__main__":
         resume_from=args.resume_from,
         gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
-        lemma_sense_mapping=lemma_sense_mapping)
+        lemma_sense_mapping=lemma_sense_mapping,
+        cosine_similarity=args.cosine_similarity)
     trainer.train(args.total_epochs)
