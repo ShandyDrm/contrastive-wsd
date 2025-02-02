@@ -105,6 +105,9 @@ class Trainer:
         negative_from_polysemy = []
         for _lemma, _pos, _labels in zip(lemmas, pos, answers_ukc):
             lemma_pos = f"{_lemma}_{_pos}"
+            if lemma_pos not in lemma_sense_mapping:
+                continue
+
             possible_senses = set(lemma_sense_mapping[lemma_pos]) - set(_labels)
 
             if len(possible_senses) > 0:   # possible polysemy
