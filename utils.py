@@ -3,34 +3,31 @@ import numpy as np
 from collections import Counter
 
 class GlossSampler:
-    def __init__(self, train_df: pd.DataFrame, ukc_gnn_mapping: dict, seed: int):
+    def __init__(self, train_df: pd.DataFrame, ukc_df: pd.DataFrame, ukc_gnn_mapping: dict, seed: int):
         bitgen = np.random.PCG64(seed)
         self.rng = np.random.Generator(bitgen)
 
         training_answers = flatten_and_convert(list(train_df["answers"]), ukc_gnn_mapping)
-        self.counter = Counter(training_answers)
+        counter = Counter(training_answers)
+        counter_df = pd.DataFrame(counter.items(), columns=['gnn_id', 'count'])
 
-    def _filter_counter(self, only: set, exclude: set):
-        filtered_counter = self.counter
-
-        if only is not None:
-            filtered_counter = Counter({k: v for k, v in filtered_counter.items() if k in only})
-
-        if exclude is not None:
-            filtered_counter = Counter({k: v for k, v in filtered_counter.items() if k not in exclude})
-
-        return filtered_counter
+        sampler_df = pd.merge(ukc_df, counter_df, how="left", on="gnn_id")
+        self.sampler_df = sampler_df[sampler_df["count"].notnull()]
 
     def sample(self, up_to: int, only: set=None, exclude: set=None):
-        filtered_counter = self._filter_counter(only, exclude)
+        temp_df = self.sampler_df
 
-        elements, weights = zip(*filtered_counter.items())
-        weights = np.array(weights) / np.sum(weights)
+        if only is not None:
+            temp_df = temp_df.loc[temp_df["gnn_id"].isin(only)]
 
-        if up_to > len(elements):
-            up_to = len(elements)
+        if exclude is not None:
+            temp_df = temp_df.loc[~temp_df["gnn_id"].isin(exclude)]
 
-        return self.rng.choice(elements, size=up_to, replace=False, p=weights)
+        available_rows = len(temp_df)
+        if up_to > available_rows:
+            up_to = available_rows
+
+        return temp_df.sample(n=up_to, weights=temp_df["count"], random_state=self.rng)
     
 class PolysemySampler():
     def __init__(self, training_data, ukc, seed):

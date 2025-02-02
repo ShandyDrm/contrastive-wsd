@@ -234,7 +234,7 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
 
-    ukc, ukc_gnn_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    ukc, ukc_df, ukc_gnn_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
 
@@ -242,7 +242,8 @@ if __name__ == "__main__":
     eval_data = prepare_dataloader(eval_dataset, args.batch_size, tokenizer, pin_memory=False)
 
     # TODO: UPDATE THE SAMPLERS!
-    gloss_sampler = GlossSampler(train_df, ukc_gnn_mapping, args.seed)
+    gloss_sampler = GlossSampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
+
     # # gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     # polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     # lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
