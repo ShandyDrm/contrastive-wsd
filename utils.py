@@ -15,7 +15,7 @@ class GlossSampler:
         gloss_sampler_df = gloss_sampler_df[gloss_sampler_df["count"].notnull()]
         self.gloss_sampler_df = gloss_sampler_df
 
-    def sample(self, up_to: int, only: set=None, exclude: set=None):
+    def generate_samples(self, up_to: int, only: set=None, exclude: set=None):
         temp_df = self.gloss_sampler_df
 
         if only is not None:
@@ -44,7 +44,7 @@ class PolysemySampler():
         polysemy_sampler_df['count'] = polysemy_sampler_df['count'].astype(int) + 1
         self.polysemy_sampler_df = polysemy_sampler_df
 
-    def sample(self, up_to: int, only: set=None, exclude: set=None):
+    def generate_samples(self, up_to: int, only: set=None, exclude: set=None):
         temp_df = self.polysemy_sampler_df
 
         if only is not None:
