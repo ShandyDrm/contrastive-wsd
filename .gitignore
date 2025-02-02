@@ -176,6 +176,7 @@ cython_debug/
 *.txt
 *.tar.gz
 *.json
+*.class
 analysis.py
 analysis/
 evaluation/
