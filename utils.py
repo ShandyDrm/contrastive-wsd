@@ -1,50 +1,37 @@
 import pandas as pd
 import numpy as np
+from collections import Counter
 
-class GlossSampler():
-    def __init__(self, training_data, ukc, seed):
-        # initialize the random number generator
+class GlossSampler:
+    def __init__(self, train_df: pd.DataFrame, ukc_gnn_mapping: dict, seed: int):
         bitgen = np.random.PCG64(seed)
         self.rng = np.random.Generator(bitgen)
 
-        try:
-            training_data_df = pd.read_csv(training_data)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"{training_data} not found.")
+        training_answers = flatten_and_convert(list(train_df["answers"]), ukc_gnn_mapping)
+        self.counter = Counter(training_answers)
 
-        try:
-            ukc_df = pd.read_csv(ukc)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"{ukc} not found.")
-
-        merged_df = pd.merge(training_data_df, ukc_df, on='ukc_id', how='left')
-        self.glosses_df = merged_df.groupby('gnn_id').agg(
-            count=('gnn_id', 'size'),
-            gloss=('gloss', 'first')
-        )
-
-        self.proportions = self.glosses_df["count"] / self.glosses_df["count"].sum()
-
-    def generate_samples(self, n, only=None, exclude=None):
-        """
-        Generates a sample of size up to `n` based on the proportions.
-        Optionally filters based on `only` and `exclude` lists.
-        """
-        temp_df = self.glosses_df
+    def _filter_counter(self, only: set, exclude: set):
+        filtered_counter = self.counter
 
         if only is not None:
-            temp_df = temp_df.loc[temp_df.index.isin(only)]
+            filtered_counter = Counter({k: v for k, v in filtered_counter.items() if k in only})
 
         if exclude is not None:
-            temp_df = temp_df.loc[~temp_df.index.isin(exclude)]
+            filtered_counter = Counter({k: v for k, v in filtered_counter.items() if k not in exclude})
 
-        # if n is greater than the available rows, adjust n
-        available_rows = len(temp_df)
-        if n > available_rows:
-            n = available_rows
+        return filtered_counter
 
-        return temp_df.sample(n=n, weights=self.proportions, random_state=self.rng)
+    def sample(self, up_to: int, only: set=None, exclude: set=None):
+        filtered_counter = self._filter_counter(only, exclude)
 
+        elements, weights = zip(*filtered_counter.items())
+        weights = np.array(weights) / np.sum(weights)
+
+        if up_to > len(elements):
+            up_to = len(elements)
+
+        return self.rng.choice(elements, size=up_to, replace=False, p=weights)
+    
 class PolysemySampler():
     def __init__(self, training_data, ukc, seed):
         # initialize the random number generator
@@ -90,3 +77,13 @@ class PolysemySampler():
             n = available_rows
 
         return temp_df.sample(n=n, weights=self.proportions, random_state=self.rng)
+
+def flatten_and_convert(list, mapping):
+    output_list = []
+    for lst in list:
+        for element in lst:
+            if element in mapping:
+                output_list.append(mapping[element])
+
+    return output_list
+

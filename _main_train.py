@@ -217,11 +217,11 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=1e-5, help="learning rate, default=1e-5")
     parser.add_argument('--hidden_size', type=int, default=256, help="hidden size for the model")
 
-    parser.add_argument('--train_filename', type='str', default='train.complete.data.json')
-    parser.add_argument('--eval_filename', type='str', default='eval.complete.data.json')
-    parser.add_argument('--test_filename', type='str', default='test.complete.data.json')
-    parser.add_argument('--ukc_filename', type='str', default='ukc.csv')
-    parser.add_argument('--edges_filename', type='str', default='edges.csv')
+    parser.add_argument('--train_filename', type=str, default='train.complete.data.json')
+    parser.add_argument('--eval_filename', type=str, default='eval.complete.data.json')
+    parser.add_argument('--test_filename', type=str, default='test.complete.data.json')
+    parser.add_argument('--ukc_filename', type=str, default='ukc.csv')
+    parser.add_argument('--edges_filename', type=str, default='edges.csv')
 
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
@@ -242,42 +242,43 @@ if __name__ == "__main__":
     eval_data = prepare_dataloader(eval_dataset, args.batch_size, tokenizer, pin_memory=False)
 
     # TODO: UPDATE THE SAMPLERS!
-    gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
-    polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
-    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
+    gloss_sampler = GlossSampler(train_df, ukc_gnn_mapping, args.seed)
+    # # gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
+    # polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
+    # lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
-    model = ContrastiveWSD(
-        args.base_model,
-        hidden_size=args.hidden_size,
-        gat_heads=args.gat_heads,
-        gat_self_loops=args.gat_self_loops,
-        gat_residual=args.gat_residual
-    ).to(device)
+    # model = ContrastiveWSD(
+    #     args.base_model,
+    #     hidden_size=args.hidden_size,
+    #     gat_heads=args.gat_heads,
+    #     gat_self_loops=args.gat_self_loops,
+    #     gat_residual=args.gat_residual
+    # ).to(device)
 
-    if (args.resume_from != 0):
-        model_name = f"checkpoint_{args.resume_from:02d}.pt"
-        model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
+    # if (args.resume_from != 0):
+    #     model_name = f"checkpoint_{args.resume_from:02d}.pt"
+    #     model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
-    T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
-    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
+    # T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
+    # scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
 
-    trainer = Trainer(
-        model=model,
-        device=device,
-        train_data=train_data,
-        eval_data=eval_data,
-        optimizer=optimizer,
-        use_scheduler=args.use_scheduler,
-        scheduler=scheduler,
-        scheduler_step=args.scheduler_step,
-        validate_every=args.validate_every,
-        ukc=ukc,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        resume_from=args.resume_from,
-        gloss_sampler=gloss_sampler,
-        polysemy_sampler=polysemy_sampler,
-        lemma_sense_mapping=lemma_sense_mapping)
-    trainer.train(args.total_epochs)
+    # trainer = Trainer(
+    #     model=model,
+    #     device=device,
+    #     train_data=train_data,
+    #     eval_data=eval_data,
+    #     optimizer=optimizer,
+    #     use_scheduler=args.use_scheduler,
+    #     scheduler=scheduler,
+    #     scheduler_step=args.scheduler_step,
+    #     validate_every=args.validate_every,
+    #     ukc=ukc,
+    #     tokenizer=tokenizer,
+    #     batch_size=args.batch_size,
+    #     resume_from=args.resume_from,
+    #     gloss_sampler=gloss_sampler,
+    #     polysemy_sampler=polysemy_sampler,
+    #     lemma_sense_mapping=lemma_sense_mapping)
+    # trainer.train(args.total_epochs)
