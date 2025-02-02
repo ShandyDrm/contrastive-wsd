@@ -35,7 +35,7 @@ def process_edges(filename, mapping):
     return mapped_edges
 
 class TrainDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, tokenizer: PreTrainedTokenizer):
+    def __init__(self, df, tokenizer):
         self.id = list(df["id"])
         self.lemma = list(df["lemma"])
         self.pos = list(df["pos"])
@@ -43,32 +43,21 @@ class TrainDataset(Dataset):
         self.sentence = list(df["sentence"])
         self.answers_ukc = list(df["answers_ukc"])
 
-        self.tokenizer = tokenizer
-
     def __len__(self):
         return len(self.id)
 
-    def __getitem__(self, idx: int):
-        encoding = self.tokenizer(
-            self.sentence[idx],
-            is_split_into_words=True,
-            return_tensors="pt",
-            padding=True,
-            truncation=True
-        )
-
+    def __getitem__(self, idx):
         return {
             "id": self.id[idx],
             "lemma": self.lemma[idx],
             "pos": self.pos[idx],
             "loc": self.loc[idx],
-            "input_ids": encoding["input_ids"].squeeze(),
-            "attention_mask": encoding["attention_mask"].squeeze(),
+            "sentence": self.sentence[idx],
             "answers_ukc": self.answers_ukc[idx],
         }
 
 class TestDataset(Dataset):
-    def __init__(self, df: pd.DataFrame, tokenizer: PreTrainedTokenizer):
+    def __init__(self, df, tokenizer):
         self.id = list(df["id"])
         self.lemma = list(df["lemma"])
         self.pos = list(df["pos"])
@@ -81,62 +70,44 @@ class TestDataset(Dataset):
     def __len__(self):
         return len(self.id)
 
-    def __getitem__(self, idx: int):
-        encoding = self.tokenizer(
-            self.sentence[idx],
-            is_split_into_words=True,
-            return_tensors="pt",
-            padding=True,
-            truncation=True
-        )
-
+    def __getitem__(self, idx):
         return {
             "id": self.id[idx],
             "lemma": self.lemma[idx],
             "pos": self.pos[idx],
             "loc": self.loc[idx],
-            "input_ids": encoding["input_ids"].squeeze(),
-            "attention_mask": encoding["attention_mask"].squeeze(),
+            "sentence": self.sentence[idx],
             "candidates_ukc": self.candidates_ukc[idx],
         }
     
-class TrainDataCollator(DataCollatorWithPadding):
+class TrainDataCollator():
     def __call__(self, features):
-        filtered_features = [
-            {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask"]}
-            for feature in features
-        ]
-
-        batch = super().__call__(filtered_features)
-
-        id, lemma, pos, loc, answers_ukc, answer_indices = [], [], [], [], [], []
+        id, lemma, pos, loc, sentence, answers_ukc, answers_ukc_flat, answer_indices = [], [], [], [], [], [], [], []
 
         for feature in features:
             id.append(feature["id"])
             lemma.append(feature["lemma"])
             pos.append(feature["pos"])
             loc.append(feature["loc"])
-            answers_ukc.extend(feature["answers_ukc"])
+            sentence.append(feature["sentence"])
+            answers_ukc.append(feature["answers_ukc"])
+            answers_ukc_flat.extend(feature["answers_ukc"])
             answer_indices.append(len(feature["answers_ukc"]))
 
-        batch["id"] = id
-        batch["lemma"] = lemma
-        batch["pos"] = pos
-        batch["loc"] = loc
-        batch["answers_ukc"] = answers_ukc
-        batch["answer_indices"] = answer_indices
-        return batch
-    
+        return {
+            "id": id,
+            "lemma": lemma,
+            "pos": pos,
+            "loc": loc,
+            "sentence": sentence,
+            "answers_ukc": answers_ukc,
+            "answers_ukc_flat": answers_ukc_flat,
+            "answer_indices": answer_indices
+        }
+
 class TestDataCollator(DataCollatorWithPadding):
     def __call__(self, features):
-        filtered_features = [
-            {key: value for key, value in feature.items() if key in ["input_ids", "attention_mask"]}
-            for feature in features
-        ]
-
-        batch = super().__call__(filtered_features)
-
-        id, lemma, pos, loc, candidates_ukc, candidate_id_ranges = [], [], [], [], [], []
+        id, lemma, pos, loc, sentence, candidates_ukc, candidate_id_ranges = [], [], [], [], [], [], []
 
         current_index = 0
         for feature in features:
@@ -144,19 +115,22 @@ class TestDataCollator(DataCollatorWithPadding):
             lemma.append(feature["lemma"])
             pos.append(feature["pos"])
             loc.append(feature["loc"])
+            sentence.append(feature["sentence"])
 
             candidates_ukc.extend(feature["candidates_ukc"])
 
             candidate_id_ranges.append((current_index, current_index + len(candidates_ukc)))
             current_index += len(candidates_ukc)
 
-        batch["id"] = id
-        batch["lemma"] = lemma
-        batch["pos"] = pos
-        batch["loc"] = loc
-        batch["candidates_ukc"] = candidates_ukc
-        batch["candidate_id_ranges"] = candidate_id_ranges
-        return batch
+        return {
+            "id": id,
+            "lemma": lemma,
+            "pos": pos,
+            "loc": loc,
+            "sentence": sentence,
+            "candidates_ukc": candidates_ukc,
+            "candidate_id_ranges": candidate_id_ranges
+        }
 
 def convert_ukc_to_gnn(row, key, ukc_gnn_mapping):
     lst = row[key]

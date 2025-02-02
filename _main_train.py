@@ -85,34 +85,46 @@ class Trainer:
         return loss
 
     def _run_batch(self, batch, train=True):
-        text_input_ids = batch["input_ids"].to(self.device)
-        text_attention_mask = batch["attention_mask"].to(self.device)
-        labels = batch["labels"].to(self.device)
+        ids = batch["id"]
+        lemmas = batch["lemma"]
+        pos = batch["pos"]
+        loc = batch["loc"]
+        sentence = batch["sentence"]
+        answers_ukc = batch["answers_ukc"]
+        answers_ukc_flat = batch["answers_ukc_flat"]
+        answer_indices = batch["answer_indices"]
 
         negative_from_polysemy = []
-        for lemma, pos, label in zip(batch["lemmas"], batch["pos"], batch["labels"]):
-            lemma_pos = f"{lemma}_{pos}"
-            possible_senses = set(self.lemma_sense_mapping[lemma_pos])
-            possible_senses.discard(int(label))
+        for _lemma, _pos, _labels in zip(lemmas, pos, answers_ukc):
+            lemma_pos = f"{_lemma}_{_pos}"
+            possible_senses = set(lemma_sense_mapping[lemma_pos]) - set(_labels)
 
             if len(possible_senses) > 0:   # possible polysemy
                 k = 1
                 polysemy_samples = self.polysemy_sampler.generate_samples(k, only=possible_senses)
                 negative_from_polysemy.append(polysemy_samples["gnn_id"].iloc[0])
 
-        exclude_from_sampling = batch["labels"].tolist() + negative_from_polysemy
+        exclude_from_sampling = answers_ukc_flat + negative_from_polysemy
         gloss_samples = self.gloss_sampler.generate_samples(self.batch_size, exclude=exclude_from_sampling)
-        all_samples = exclude_from_sampling + list(gloss_samples.index)
+        all_samples = exclude_from_sampling + list(gloss_samples["gnn_id"])
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
         glosses, edges = self.ukc.sample(all_samples_tensor)
         tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
         edges = edges.to(self.device)
 
+        tokenized_sentences = self.tokenizer(sentence,
+                                             is_split_into_words=True,
+                                             padding=True,
+                                             truncation=True,
+                                             return_tensors="pt",
+                                             max_length=self.max_length
+                                             ).to(self.device)
+
         if train:
             self.optimizer.zero_grad()
 
-        input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(all_samples))
+        input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, self.batch_size, len(all_samples))
         loss = self._calculate_loss(input_embeddings, gnn_vector)
 
         if train:
