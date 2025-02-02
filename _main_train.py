@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, BCEWithLogitsLoss
 from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
@@ -51,7 +51,7 @@ class Trainer:
         self.gloss_sampler = gloss_sampler
         self.polysemy_sampler = polysemy_sampler
         self.lemma_sense_mapping = lemma_sense_mapping
-        self.loss_fn = CrossEntropyLoss()
+        self.loss_fn = BCEWithLogitsLoss()
 
         DEFAULT_MAX_LENGTH = 512
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
@@ -72,15 +72,21 @@ class Trainer:
         with open("gradient_norm.log", "a") as f:
             f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 
-    def _calculate_loss(self, input_embeddings, gnn_vector):
+    def _calculate_loss(self, input_embeddings, gnn_vector, answer_indices):
         logits = torch.matmul(input_embeddings, gnn_vector.T)
 
-        labels_len = min(logits.shape[0], self.batch_size)
-        labels = torch.arange(labels_len).to(self.device)
+        labels = torch.zeros_like(logits)
+        counter = 0
+        for r, c in enumerate(answer_indices):
+            labels[r][counter:counter+c] = 1
+            counter += c
 
         loss_i = self.loss_fn(logits, labels)
-        logits_t = logits.T[:labels_len]
-        loss_t = self.loss_fn(logits_t, labels)
+
+        logits_t = logits.T[:sum(answer_indices)]
+        labels_t = labels.T[:sum(answer_indices)]
+
+        loss_t = self.loss_fn(logits_t, labels_t)
         loss = (loss_i + loss_t)/2
         return loss
 
@@ -124,8 +130,8 @@ class Trainer:
         if train:
             self.optimizer.zero_grad()
 
-        input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, self.batch_size, len(all_samples))
-        loss = self._calculate_loss(input_embeddings, gnn_vector)
+        input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
+        loss = self._calculate_loss(input_embeddings, gnn_vector, answer_indices)
 
         if train:
             loss.backward()
@@ -141,7 +147,7 @@ class Trainer:
         return loss
 
     def _run_epoch(self, epoch):
-        b_sz = len(next(iter(self.train_data)).input_ids)
+        b_sz = len(next(iter(self.train_data))["id"])
         print(f"[GPU] Epoch {epoch} | Batchsize: {b_sz} | Steps: {len(self.train_data)}", flush=True)
 
         for batch_number, batch in enumerate(tqdm(self.train_data)):
@@ -182,17 +188,17 @@ class Trainer:
         for epoch in range(start, end):
             self.model.train()
             self._run_epoch(epoch)
-            if epoch % self.validate_every == 0:
-                self.model.eval()
-                with torch.no_grad():
-                    self._validate(epoch)
+            # if epoch % self.validate_every == 0:
+            #     self.model.eval()
+            #     with torch.no_grad():
+            #         self._validate(epoch)
 
-                self._save_checkpoint(epoch)
+            #     self._save_checkpoint(epoch)
 
-                torch.cuda.empty_cache()
+            #     torch.cuda.empty_cache()
 
-def prepare_dataloader(dataset: Dataset, batch_size: int, tokenizer: PreTrainedTokenizer, pin_memory: bool):
-    data_collator = TrainDataCollator(tokenizer=tokenizer)
+def prepare_dataloader(dataset: Dataset, batch_size: int, pin_memory: bool):
+    data_collator = TrainDataCollator()
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -250,8 +256,8 @@ if __name__ == "__main__":
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
 
-    train_data = prepare_dataloader(train_dataset, args.batch_size, tokenizer, pin_memory=True)
-    eval_data = prepare_dataloader(eval_dataset, args.batch_size, tokenizer, pin_memory=False)
+    train_data = prepare_dataloader(train_dataset, args.batch_size, pin_memory=True)
+    eval_data = prepare_dataloader(eval_dataset, args.batch_size, pin_memory=False)
 
     gloss_sampler = GlossSampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
     polysemy_sampler = PolysemySampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
