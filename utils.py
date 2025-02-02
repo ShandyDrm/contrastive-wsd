@@ -11,11 +11,12 @@ class GlossSampler:
         counter = Counter(training_answers)
         counter_df = pd.DataFrame(counter.items(), columns=['gnn_id', 'count'])
 
-        sampler_df = pd.merge(ukc_df, counter_df, how="left", on="gnn_id")
-        self.sampler_df = sampler_df[sampler_df["count"].notnull()]
+        gloss_sampler_df = pd.merge(ukc_df, counter_df, how="left", on="gnn_id")
+        gloss_sampler_df = gloss_sampler_df[gloss_sampler_df["count"].notnull()]
+        self.gloss_sampler_df = gloss_sampler_df
 
     def sample(self, up_to: int, only: set=None, exclude: set=None):
-        temp_df = self.sampler_df
+        temp_df = self.gloss_sampler_df
 
         if only is not None:
             temp_df = temp_df.loc[temp_df["gnn_id"].isin(only)]
@@ -30,50 +31,33 @@ class GlossSampler:
         return temp_df.sample(n=up_to, weights=temp_df["count"], random_state=self.rng)
     
 class PolysemySampler():
-    def __init__(self, training_data, ukc, seed):
-        # initialize the random number generator
+    def __init__(self, train_df: pd.DataFrame, ukc_df: pd.DataFrame, ukc_gnn_mapping: dict, seed: int):
         bitgen = np.random.PCG64(seed)
         self.rng = np.random.Generator(bitgen)
 
-        try:
-            training_data_df = pd.read_csv(training_data)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"{training_data} not found.")
+        training_answers = flatten_and_convert(list(train_df["answers"]), ukc_gnn_mapping)
+        counter = Counter(training_answers)
+        counter_df = pd.DataFrame(counter.items(), columns=['gnn_id', 'count'])
 
-        try:
-            ukc_df = pd.read_csv(ukc)
-        except FileNotFoundError:
-            raise FileNotFoundError(f"{ukc} not found.")
+        polysemy_sampler_df = pd.merge(ukc_df, counter_df, how="left", on="gnn_id")
+        polysemy_sampler_df = polysemy_sampler_df.fillna({"count": 0})
+        polysemy_sampler_df['count'] = polysemy_sampler_df['count'].astype(int) + 1
+        self.polysemy_sampler_df = polysemy_sampler_df
 
-        training_count = training_data_df["ukc_id"].value_counts().reset_index()
-        training_count.columns = ["ukc_id", "count"]
-
-        glosses_df = pd.merge(ukc_df, training_count, on='ukc_id', how='left')
-        glosses_df = glosses_df.fillna({"count": 0})
-        glosses_df['count'] = glosses_df['count'].astype(int) + 1
-        self.glosses_df = glosses_df[["gnn_id", "gloss", "count"]]
-
-        self.proportions = self.glosses_df["count"] / self.glosses_df["count"].sum()
-
-    def generate_samples(self, n, only=None, exclude=None):
-        """
-        Generates a sample of size up to `n` based on the proportions.
-        Optionally filters based on `only` and `exclude` lists.
-        """
-        temp_df = self.glosses_df
+    def sample(self, up_to: int, only: set=None, exclude: set=None):
+        temp_df = self.polysemy_sampler_df
 
         if only is not None:
-            temp_df = temp_df.loc[temp_df.index.isin(only)]
+            temp_df = temp_df.loc[temp_df["gnn_id"].isin(only)]
 
         if exclude is not None:
-            temp_df = temp_df.loc[~temp_df.index.isin(exclude)]
+            temp_df = temp_df.loc[~temp_df["gnn_id"].isin(exclude)]
 
-        # if n is greater than the available rows, adjust n
         available_rows = len(temp_df)
-        if n > available_rows:
-            n = available_rows
+        if up_to > available_rows:
+            up_to = available_rows
 
-        return temp_df.sample(n=n, weights=self.proportions, random_state=self.rng)
+        return temp_df.sample(n=up_to, weights=temp_df["count"], random_state=self.rng)
 
 def flatten_and_convert(list, mapping):
     output_list = []
