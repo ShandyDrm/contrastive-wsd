@@ -185,6 +185,35 @@ def parse_test_file(test_filename: str, ukc_gnn_mapping: dict, small: bool=False
         return test_df[:100]
     return test_df
 
+def build_ukc(ukc_filename: str, edges_file: str, ukc_num_neighbors: list=[8, 8]) -> Tuple[UKC, dict]:
+    ukc_df = pd.read_csv(ukc_filename)
+    ukc_gnn_mapping = dict(zip(ukc_df['ukc_id'], ukc_df['gnn_id']))
+    edges = process_edges(edges_file, ukc_gnn_mapping)
+    ukc = UKC(ukc_df, edges, ukc_num_neighbors)
+
+    return ukc, ukc_gnn_mapping
+
+def build_dataframes(train_filename: str,
+                     eval_filename: str,
+                     test_filename: str,
+                     ukc_gnn_mapping: dict,
+                     small: bool=False
+                     ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    train_df = parse_train_file(train_filename, ukc_gnn_mapping, small)
+    eval_df = parse_test_file(eval_filename, ukc_gnn_mapping, small)
+    test_df = parse_test_file(test_filename, ukc_gnn_mapping, small)
+    return train_df, eval_df, test_df
+
+def build_dataset(train_df: pd.DataFrame,
+                  eval_df: pd.DataFrame,
+                  test_df: pd.DataFrame,
+                  tokenizer: PreTrainedTokenizer
+                  ) -> Tuple[Dataset, Dataset, Dataset]:
+    train_dataset = TrainDataset(train_df, tokenizer)
+    eval_dataset = TestDataset(eval_df, tokenizer)
+    test_dataset = TestDataset(test_df, tokenizer)
+    return train_dataset, eval_dataset, test_dataset
+
 def load_dataset(
         tokenizer: PreTrainedTokenizer,
         train_filename: str,

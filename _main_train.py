@@ -10,7 +10,7 @@ from tqdm.auto import tqdm
 import csv
 
 from model import ContrastiveWSD
-from dataset import load_dataset, TrainDataCollator
+from dataset import load_dataset, build_ukc, build_dataframes, build_dataset, TrainDataCollator
 from ukc import UKC
 from utils import GlossSampler, PolysemySampler
 
@@ -220,6 +220,8 @@ if __name__ == "__main__":
     parser.add_argument('--train_filename', type='str', default='train.complete.data.json')
     parser.add_argument('--eval_filename', type='str', default='eval.complete.data.json')
     parser.add_argument('--test_filename', type='str', default='test.complete.data.json')
+    parser.add_argument('--ukc_filename', type='str', default='ukc.csv')
+    parser.add_argument('--edges_filename', type='str', default='edges.csv')
 
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
@@ -232,13 +234,14 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
 
-    train_dataset, eval_dataset, _, ukc = load_dataset(
-        tokenizer, args.train_filename, args.eval_filename, args.test_filename, args.small, args.ukc_num_neighbors
-    )
+    ukc, ukc_gnn_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
+    train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
 
     train_data = prepare_dataloader(train_dataset, args.batch_size, tokenizer, pin_memory=True)
     eval_data = prepare_dataloader(eval_dataset, args.batch_size, tokenizer, pin_memory=False)
 
+    # TODO: UPDATE THE SAMPLERS!
     gloss_sampler = GlossSampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     polysemy_sampler = PolysemySampler("SemCor_Train_New.csv", "ukc.csv", seed=args.seed)
     lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
