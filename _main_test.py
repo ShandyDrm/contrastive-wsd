@@ -10,7 +10,7 @@ import csv
 import numpy as np
 
 from model import ContrastiveWSD
-from dataset import load_dataset, TestDataCollator
+from dataset import load_dataset, build_ukc, build_dataframes, build_dataset, TestDataCollator
 from ukc import UKC
 
 class Evaluator:
@@ -42,17 +42,27 @@ class Evaluator:
     def validate(self):
         all_top1, all_scores = [], []
         for batch in tqdm(self.validation_data):
-            sentence_ids = batch["ids"]
-            text_input_ids = batch["input_ids"].to(self.device)
-            text_attention_mask = batch["attention_mask"].to(self.device)
-            all_candidate_ids = batch["all_candidate_ids"]
+            sentence_ids = batch["id"]
+            loc = batch["loc"]
+            sentence = batch["sentence"]
+            candidates_ukc = batch["candidates_ukc"]
             candidate_id_ranges = batch["candidate_id_ranges"]
 
-            glosses, edges = self.ukc.sample(all_candidate_ids)
+            candidates_ukc = torch.tensor(candidates_ukc)
+
+            glosses, edges = self.ukc.sample(candidates_ukc)
             tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
             edges = edges.to(self.device)
 
-            input_embeddings, gnn_vector = self.model(text_input_ids, text_attention_mask, tokenized_glosses, edges, len(all_candidate_ids))
+            tokenized_sentences = self.tokenizer(sentence,
+                                                 is_split_into_words=True,
+                                                 padding=True,
+                                                 truncation=True,
+                                                 return_tensors="pt",
+                                                 max_length=self.max_length
+                                                 ).to(self.device)
+
+            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
 
             if self.cosine_similarity:
                 input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
@@ -62,8 +72,7 @@ class Evaluator:
                 sentence_id = sentence_ids[i]
                 sub_matrix = gnn_vector[start:end].T
                 pairwise_similarity = (torch.matmul(input_embeddings[i], sub_matrix) * np.exp(self.temperature)).tolist()
-                candidate_ids = all_candidate_ids[start:end].tolist()
-
+                candidate_ids = candidates_ukc[start:end].tolist()
                 sorted_pairwise_similarity, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
 
                 for score, candidate_id in zip(sorted_pairwise_similarity, sorted_candidate_ids):
@@ -95,6 +104,13 @@ if __name__ == "__main__":
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--hidden_size', type=int, default=256, help="hidden size for the model")
+
+    parser.add_argument('--train_filename', type=str, default='train.complete.data.json')
+    parser.add_argument('--eval_filename', type=str, default='eval.complete.data.json')
+    parser.add_argument('--test_filename', type=str, default='test.complete.data.json')
+    parser.add_argument('--ukc_filename', type=str, default='ukc.csv')
+    parser.add_argument('--edges_filename', type=str, default='edges.csv')
+
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
@@ -106,7 +122,10 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
-    _, _, test_dataset, ukc = load_dataset(tokenizer, args.small, args.ukc_num_neighbors)
+
+    ukc, ukc_df, ukc_gnn_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
+    train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
     test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
 
     for epoch in args.epochs:

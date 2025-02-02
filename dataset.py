@@ -119,8 +119,8 @@ class TestDataCollator(DataCollatorWithPadding):
 
             candidates_ukc.extend(feature["candidates_ukc"])
 
-            candidate_id_ranges.append((current_index, current_index + len(candidates_ukc)))
-            current_index += len(candidates_ukc)
+            candidate_id_ranges.append((current_index, current_index + len(feature["candidates_ukc"])))
+            current_index += len(feature["candidates_ukc"])
 
         return {
             "id": id,
