@@ -109,20 +109,22 @@ class TrainDataCollator(DataCollatorWithPadding):
 
         batch = super().__call__(filtered_features)
 
-        id, lemma, pos, loc, answers_ukc = [], [], [], [], []
+        id, lemma, pos, loc, answers_ukc, answer_indices = [], [], [], [], [], []
 
         for feature in features:
             id.append(feature["id"])
             lemma.append(feature["lemma"])
             pos.append(feature["pos"])
             loc.append(feature["loc"])
-            answers_ukc.append(feature["answers_ukc"])
+            answers_ukc.extend(feature["answers_ukc"])
+            answer_indices.append(len(feature["answers_ukc"]))
 
         batch["id"] = id
         batch["lemma"] = lemma
         batch["pos"] = pos
         batch["loc"] = loc
         batch["answers_ukc"] = answers_ukc
+        batch["answer_indices"] = answer_indices
         return batch
     
 class TestDataCollator(DataCollatorWithPadding):
