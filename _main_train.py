@@ -1,16 +1,16 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.nn import CrossEntropyLoss, BCEWithLogitsLoss
+from torch.nn import BCEWithLogitsLoss
 from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from tqdm.auto import tqdm
 
-import csv
+import os, csv, subprocess, re
 
 from model import ContrastiveWSD
-from dataset import load_dataset, build_ukc, build_dataframes, build_dataset, TrainDataCollator
+from dataset import build_ukc, build_dataframes, build_dataset, TrainDataCollator, TestDataCollator
 from ukc import UKC
 from utils import GlossSampler, PolysemySampler
 
@@ -32,7 +32,8 @@ class Trainer:
         resume_from: int,
         gloss_sampler: GlossSampler,
         polysemy_sampler: PolysemySampler,
-        lemma_sense_mapping: dict
+        lemma_sense_mapping: dict,
+        gnn_ukc_mapping: dict
     ) -> None:
         self.model = model.to(device)
         self.device = device
@@ -51,6 +52,7 @@ class Trainer:
         self.gloss_sampler = gloss_sampler
         self.polysemy_sampler = polysemy_sampler
         self.lemma_sense_mapping = lemma_sense_mapping
+        self.gnn_ukc_mapping = gnn_ukc_mapping
         self.loss_fn = BCEWithLogitsLoss()
 
         DEFAULT_MAX_LENGTH = 512
@@ -157,19 +159,61 @@ class Trainer:
                 self._log_gradient_norm(epoch, batch_number)
 
     def _validate(self, epoch):
-        total_loss = 0.0
-        num_batches = 0
+        all_top1, all_scores = [], []
+        for batch in tqdm(self.eval_data):
+            sentence_ids = batch["id"]
+            loc = batch["loc"]
+            sentence = batch["sentence"]
+            candidates_ukc = batch["candidates_ukc"]
+            candidate_id_ranges = batch["candidate_id_ranges"]
 
-        for batch in self.eval_data:
-            loss = self._run_batch(batch, train=False)
-            loss_tensor = loss.clone().detach().to(torch.float32)
+            candidates_ukc = torch.tensor(candidates_ukc)
 
-            total_loss += loss_tensor.item()
-            num_batches += 1
+            glosses, edges = self.ukc.sample(candidates_ukc)
+            tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+            edges = edges.to(self.device)
 
-        avg_loss = total_loss / num_batches
-        with open("validation_loss.log", "a") as f:
-            f.write(f"Epoch {epoch:2d} | Validation Loss: {avg_loss:.3f}\n")
+            tokenized_sentences = self.tokenizer(sentence,
+                                                 is_split_into_words=True,
+                                                 padding=True,
+                                                 truncation=True,
+                                                 return_tensors="pt",
+                                                 max_length=self.max_length
+                                                 ).to(self.device)
+
+            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
+
+            for i, (start, end) in enumerate(candidate_id_ranges):
+                sentence_id = sentence_ids[i]
+                sub_matrix = gnn_vector[start:end].T
+                pairwise_similarity = torch.matmul(input_embeddings[i], sub_matrix)
+                candidate_ids = candidates_ukc[start:end].tolist()
+                sorted_pairwise_similarity, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
+
+                for score, candidate_id in zip(sorted_pairwise_similarity, sorted_candidate_ids):
+                    all_scores.append([sentence_id, candidate_id, score])
+
+                top1 = sorted_candidate_ids[0]
+                top1 = self.gnn_ukc_mapping[top1]
+                all_top1.append([sentence_id, top1])
+            
+        eval_tempfile = "temp.txt"
+        with open(eval_tempfile, 'w') as file:
+            writer = csv.writer(file, delimiter=' ')
+            writer.writerows(all_top1)
+
+        gold_standard = 'UKC.gold.key.txt'
+        subprocess_result = subprocess.run(
+            ['java', 'Scorer', gold_standard, eval_tempfile],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        )
+        key_value_pairs = re.findall('(\\w+)=\\s*([\\d.]+%)', subprocess_result.stdout)
+        parsed_result = {}
+        for key, value in key_value_pairs:
+            parsed_result[key] = value
+        print(f"Epoch {epoch} - F1: {parsed_result['F1']}")
+        
+        os.remove(eval_tempfile)
 
     def _save_checkpoint(self, epoch):
         ckp = self.model.state_dict()
@@ -188,17 +232,16 @@ class Trainer:
         for epoch in range(start, end):
             self.model.train()
             self._run_epoch(epoch)
-            # if epoch % self.validate_every == 0:
-            #     self.model.eval()
-            #     with torch.no_grad():
-            #         self._validate(epoch)
+            if epoch % self.validate_every == 0:
+                self.model.eval()
+                with torch.no_grad():
+                    self._validate(epoch)
 
-            #     self._save_checkpoint(epoch)
+                self._save_checkpoint(epoch)
 
-            #     torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
 
-def prepare_dataloader(dataset: Dataset, batch_size: int, pin_memory: bool):
-    data_collator = TrainDataCollator()
+def prepare_dataloader(dataset: Dataset, batch_size: int, pin_memory: bool, data_collator: callable):
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -252,12 +295,12 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
 
-    ukc, ukc_df, ukc_gnn_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
 
-    train_data = prepare_dataloader(train_dataset, args.batch_size, pin_memory=True)
-    eval_data = prepare_dataloader(eval_dataset, args.batch_size, pin_memory=False)
+    train_data = prepare_dataloader(train_dataset, args.batch_size, True, TrainDataCollator())
+    eval_data = prepare_dataloader(eval_dataset, args.batch_size, False, TestDataCollator())
 
     gloss_sampler = GlossSampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
     polysemy_sampler = PolysemySampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
@@ -296,5 +339,6 @@ if __name__ == "__main__":
         resume_from=args.resume_from,
         gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
-        lemma_sense_mapping=lemma_sense_mapping)
+        lemma_sense_mapping=lemma_sense_mapping,
+        gnn_ukc_mapping=gnn_ukc_mapping)
     trainer.train(args.total_epochs)

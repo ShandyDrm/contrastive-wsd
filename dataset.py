@@ -105,7 +105,7 @@ class TrainDataCollator():
             "answer_indices": answer_indices
         }
 
-class TestDataCollator(DataCollatorWithPadding):
+class TestDataCollator():
     def __call__(self, features):
         id, lemma, pos, loc, sentence, candidates_ukc, candidate_id_ranges = [], [], [], [], [], [], []
 
@@ -161,13 +161,14 @@ def parse_test_file(test_filename: str, ukc_gnn_mapping: dict, small: bool=False
         return test_df[:100]
     return test_df
 
-def build_ukc(ukc_filename: str, edges_file: str, ukc_num_neighbors: list=[8, 8]) -> Tuple[UKC, pd.DataFrame, dict]:
+def build_ukc(ukc_filename: str, edges_file: str, ukc_num_neighbors: list=[8, 8]) -> Tuple[UKC, pd.DataFrame, dict, dict]:
     ukc_df = pd.read_csv(ukc_filename)
     ukc_gnn_mapping = dict(zip(ukc_df['ukc_id'], ukc_df['gnn_id']))
+    gnn_ukc_mapping = dict(zip(ukc_df['gnn_id'], ukc_df['ukc_id']))
     edges = process_edges(edges_file, ukc_gnn_mapping)
     ukc = UKC(ukc_df, edges, ukc_num_neighbors)
 
-    return ukc, ukc_df, ukc_gnn_mapping
+    return ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping
 
 def build_dataframes(train_filename: str,
                      eval_filename: str,
