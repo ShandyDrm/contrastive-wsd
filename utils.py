@@ -7,16 +7,15 @@ class GlossSampler:
         bitgen = np.random.PCG64(seed)
         self.rng = np.random.Generator(bitgen)
 
-        training_answers = flatten_and_convert(list(train_df["answers"]), ukc_gnn_mapping)
+        training_answers = [ukc_gnn_mapping[_ukc_id] for _ukc_id in train_df["answers"]]
         counter = Counter(training_answers)
         counter_df = pd.DataFrame(counter.items(), columns=['gnn_id', 'count'])
 
-        gloss_sampler_df = pd.merge(ukc_df, counter_df, how="left", on="gnn_id")
-        gloss_sampler_df = gloss_sampler_df[gloss_sampler_df["count"].notnull()]
-        self.gloss_sampler_df = gloss_sampler_df
+        sampler_df = pd.merge(ukc_df, counter_df, how="left", on="gnn_id")
+        self.sampler_df = sampler_df[sampler_df["count"].notnull()]
 
     def generate_samples(self, up_to: int, only: set=None, exclude: set=None):
-        temp_df = self.gloss_sampler_df
+        temp_df = self.sampler_df
 
         if only is not None:
             temp_df = temp_df.loc[temp_df["gnn_id"].isin(only)]
@@ -35,7 +34,7 @@ class PolysemySampler():
         bitgen = np.random.PCG64(seed)
         self.rng = np.random.Generator(bitgen)
 
-        training_answers = flatten_and_convert(list(train_df["answers"]), ukc_gnn_mapping)
+        training_answers = [ukc_gnn_mapping[_ukc_id] for _ukc_id in train_df["answers"]]
         counter = Counter(training_answers)
         counter_df = pd.DataFrame(counter.items(), columns=['gnn_id', 'count'])
 

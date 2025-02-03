@@ -74,21 +74,15 @@ class Trainer:
         with open("gradient_norm.log", "a") as f:
             f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 
-    def _calculate_loss(self, input_embeddings, gnn_vector, answer_indices):
+    def _calculate_loss(self, input_embeddings, gnn_vector):
         logits = torch.matmul(input_embeddings, gnn_vector.T)
 
-        labels = torch.zeros_like(logits)
-        counter = 0
-        for r, c in enumerate(answer_indices):
-            labels[r][counter:counter+c] = 1
-            counter += c
+        labels_len = min(logits.shape[0], self.batch_size)
+        labels = torch.arange(labels_len).to(self.device)
 
         loss_i = self.loss_fn(logits, labels)
-
-        logits_t = logits.T[:sum(answer_indices)]
-        labels_t = labels.T[:sum(answer_indices)]
-
-        loss_t = self.loss_fn(logits_t, labels_t)
+        logits_t = logits.T[:labels_len]
+        loss_t = self.loss_fn(logits_t, labels)
         loss = (loss_i + loss_t)/2
         return loss
 
@@ -99,8 +93,6 @@ class Trainer:
         loc = batch["loc"]
         sentence = batch["sentence"]
         answers_ukc = batch["answers_ukc"]
-        answers_ukc_flat = batch["answers_ukc_flat"]
-        answer_indices = batch["answer_indices"]
 
         negative_from_polysemy = []
         for _lemma, _pos, _labels in zip(lemmas, pos, answers_ukc):
@@ -108,14 +100,14 @@ class Trainer:
             if lemma_pos not in lemma_sense_mapping:
                 continue
 
-            possible_senses = set(lemma_sense_mapping[lemma_pos]) - set(_labels)
+            possible_senses = set(lemma_sense_mapping[lemma_pos]) - set([_labels])
 
             if len(possible_senses) > 0:   # possible polysemy
                 k = 1
-                polysemy_samples = self.polysemy_sampler.generate_samples(k, only=possible_senses)
+                polysemy_samples = polysemy_sampler.generate_samples(k, only=possible_senses)
                 negative_from_polysemy.append(polysemy_samples["gnn_id"].iloc[0])
 
-        exclude_from_sampling = answers_ukc_flat + negative_from_polysemy
+        exclude_from_sampling = list(answers_ukc) + negative_from_polysemy
         gloss_samples = self.gloss_sampler.generate_samples(self.batch_size, exclude=exclude_from_sampling)
         all_samples = exclude_from_sampling + list(gloss_samples["gnn_id"])
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
@@ -136,7 +128,7 @@ class Trainer:
             self.optimizer.zero_grad()
 
         input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
-        loss = self._calculate_loss(input_embeddings, gnn_vector, answer_indices)
+        loss = self._calculate_loss(input_embeddings, gnn_vector)
 
         if train:
             loss.backward()

@@ -91,18 +91,14 @@ class TrainDataCollator():
             loc.append(feature["loc"])
             sentence.append(feature["sentence"])
             answers_ukc.append(feature["answers_ukc"])
-            answers_ukc_flat.extend(feature["answers_ukc"])
-            answer_indices.append(len(feature["answers_ukc"]))
 
         return {
             "id": id,
             "lemma": lemma,
             "pos": pos,
-            "loc": loc,
+            "loc": torch.tensor(loc, dtype=int),
             "sentence": sentence,
-            "answers_ukc": answers_ukc,
-            "answers_ukc_flat": answers_ukc_flat,
-            "answer_indices": answer_indices
+            "answers_ukc": torch.tensor(answers_ukc, dtype=int),
         }
 
 class TestDataCollator():
@@ -132,6 +128,13 @@ class TestDataCollator():
             "candidate_id_ranges": candidate_id_ranges
         }
 
+def convert_ukc_val_to_gnn(row, key, ukc_gnn_mapping):
+    ukc_id = row[key]
+    if ukc_id in ukc_gnn_mapping:
+        return ukc_gnn_mapping[ukc_id]
+    else:
+        return None
+
 def convert_ukc_to_gnn(row, key, ukc_gnn_mapping):
     lst = row[key]
     gnn_ids = []
@@ -145,7 +148,7 @@ def convert_ukc_to_gnn(row, key, ukc_gnn_mapping):
 
 def parse_train_file(train_filename: str, ukc_gnn_mapping: dict, small: bool=False):
     train_df = pd.read_json(train_filename)
-    train_df["answers_ukc"] = train_df.apply(lambda row: convert_ukc_to_gnn(row, "answers", ukc_gnn_mapping), axis=1)
+    train_df["answers_ukc"] = train_df.apply(lambda row: convert_ukc_val_to_gnn(row, "answers", ukc_gnn_mapping), axis=1)
     train_df = train_df[train_df["answers_ukc"].notnull()]
 
     if small:
