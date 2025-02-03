@@ -118,7 +118,7 @@ if __name__ == "__main__":
     parser.add_argument('--ukc_filename', type=str, default='ukc.csv')
     parser.add_argument('--edges_filename', type=str, default='edges.csv')
 
-    parser.add_argument('--eval_dir', type=str, default='evaluation', help='directory where evaluation folders are located')
+    parser.add_argument('--test_dir', type=str, default='test-gold-standard', help='directory where test gold standard files are located')
 
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
@@ -185,7 +185,7 @@ if __name__ == "__main__":
 
                 for title, gold_standard in gold_standards:
                     result = subprocess.run(
-                        ['java', "Scorer", f"{args.eval_dir}/{gold_standard}", result_filename],
+                        ['java', "Scorer", f"{args.test_dir}/{gold_standard}", result_filename],
                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
                     )
 
