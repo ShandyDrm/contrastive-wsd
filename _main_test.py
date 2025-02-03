@@ -6,8 +6,9 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 
 from tqdm.auto import tqdm
 
-import csv
+import csv, subprocess, re
 import numpy as np
+import pandas as pd
 
 from model import ContrastiveWSD
 from dataset import load_dataset, build_ukc, build_dataframes, build_dataset, TestDataCollator
@@ -117,6 +118,8 @@ if __name__ == "__main__":
     parser.add_argument('--ukc_filename', type=str, default='ukc.csv')
     parser.add_argument('--edges_filename', type=str, default='edges.csv')
 
+    parser.add_argument('--eval_dir', type=str, default='evaluation', help='directory where evaluation folders are located')
+
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
@@ -134,6 +137,7 @@ if __name__ == "__main__":
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
     test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
 
+    result_rows = []
     for epoch in args.epochs:
         epoch = int(epoch)
         filename = f"checkpoint_{epoch:02d}.pt"
@@ -162,10 +166,47 @@ if __name__ == "__main__":
             )
             all_top1, all_scores = evaluator.validate()
 
-            with open(f"Result-Epoch_{epoch:02d}-CosineSim_{cosine_similarity}.txt", 'w') as file:
+            result_filename = f"Result-Epoch_{epoch:02d}-CosineSim_{cosine_similarity}.txt"
+            with open(result_filename, 'w') as file:
                 writer = csv.writer(file, delimiter=' ')
                 writer.writerows(all_top1)
+
+            def calculate_scores(result_filename):
+                result_rows = []
+                gold_standards = [
+                    ('ALL', 'UKC.gold.key.txt'),
+                    ('Seen Only', 'UKC.in.test.gold.key.txt'),
+                    ('Unseen Only', 'UKC.out.test.gold.key.txt'),
+                    ('Single Candidate Only', 'UKC.single.test.gold.key.txt'),
+                    ('Multiple Candidates Only', 'UKC.multi.test.gold.key.txt'),
+                    ('Multiple Candidates Seen Only', 'UKC.multi.in.test.gold.key.txt'),
+                    ('Multiple Candidates Unseen Only', 'UKC.multi.out.test.gold.key.txt')
+                ]
+
+                for title, gold_standard in gold_standards:
+                    result = subprocess.run(
+                        ['java', "Scorer", f"{args.eval_dir}/{gold_standard}", result_filename],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                    )
+
+                    output = result.stdout
+                    key_value_pairs = re.findall('(\\w+)=\\s*([\\d.]+%)', output)
+
+                    result = {}
+                    result['Similarity Metric'] = "Cosine Similarity" if cosine_similarity else "Dot Product"
+                    result['Criteria'] = title
+                    for key, value in key_value_pairs:
+                        result[key] = value
+                    print(result)
+
+                    result_rows.append(result)
+                return result_rows
+            
+            result_rows.extend(calculate_scores(result_filename))
 
             with open(f"Result-Epoch_{epoch:02d}-CosineSim_{cosine_similarity}-Scores.csv", 'w') as file:
                 writer = csv.writer(file)
                 writer.writerows(all_scores)
+
+    result_df = pd.DataFrame(result_rows)
+    result_df.to_csv("result.csv")
