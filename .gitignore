@@ -179,4 +179,5 @@ cython_debug/
 *.class
 analysis.py
 analysis/
-evaluation/
+eval-gold-standard/
+test-gold-standard/
