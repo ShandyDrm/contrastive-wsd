@@ -23,7 +23,8 @@ class Evaluator:
         ukc: UKC,
         tokenizer: PreTrainedTokenizer,
         batch_size: int,
-        cosine_similarity: bool
+        cosine_similarity: bool,
+        gnn_ukc_mapping: dict
     ) -> None:
         self.id = id
         self.model = model.to(device)
@@ -33,6 +34,7 @@ class Evaluator:
         self.tokenizer = tokenizer
         self.batch_size = batch_size
         self.cosine_similarity = cosine_similarity
+        self.gnn_ukc_mapping = gnn_ukc_mapping
 
         self.temperature = 0.07
 
@@ -76,9 +78,13 @@ class Evaluator:
                 sorted_pairwise_similarity, sorted_candidate_ids = zip(*sorted(zip(pairwise_similarity, candidate_ids), reverse=True))
 
                 for score, candidate_id in zip(sorted_pairwise_similarity, sorted_candidate_ids):
-                    all_scores.append([sentence_id, candidate_id, score])
+                    ukc_id = self.gnn_ukc_mapping[candidate_id]
+                    all_scores.append([sentence_id, ukc_id, score])
+                
+                best_gnn_id = sorted_candidate_ids[0]
+                best_ukc_id = self.gnn_ukc_mapping[best_gnn_id]
 
-                top1 = [sentence_id] + list(sorted_candidate_ids[:1])
+                top1 = [sentence_id, best_ukc_id]
                 all_top1.append(top1)
 
         return all_top1, all_scores
@@ -123,7 +129,7 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
 
-    ukc, ukc_df, ukc_gnn_mapping, _ = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
     test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
@@ -151,7 +157,8 @@ if __name__ == "__main__":
                 ukc=ukc,
                 tokenizer=tokenizer,
                 batch_size=args.batch_size,
-                cosine_similarity=cosine_similarity
+                cosine_similarity=cosine_similarity,
+                gnn_ukc_mapping=gnn_ukc_mapping
             )
             all_top1, all_scores = evaluator.validate()
 
