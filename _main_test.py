@@ -201,7 +201,7 @@ if __name__ == "__main__":
 
                     result_rows.append(result)
                 return result_rows
-            
+
             result_rows.extend(calculate_scores(result_filename))
 
             with open(f"Result-Epoch_{epoch:02d}-CosineSim_{cosine_similarity}-Scores.csv", 'w') as file:

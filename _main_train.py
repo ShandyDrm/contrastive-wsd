@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torch.nn import BCEWithLogitsLoss
+from torch.nn import CrossEntropyLoss
 from torch.optim.lr_scheduler import LRScheduler, CosineAnnealingLR
 
 from transformers import AutoTokenizer, PreTrainedTokenizer
@@ -33,7 +33,8 @@ class Trainer:
         gloss_sampler: GlossSampler,
         polysemy_sampler: PolysemySampler,
         lemma_sense_mapping: dict,
-        gnn_ukc_mapping: dict
+        gnn_ukc_mapping: dict,
+        eval_dir: str
     ) -> None:
         self.model = model.to(device)
         self.device = device
@@ -53,7 +54,9 @@ class Trainer:
         self.polysemy_sampler = polysemy_sampler
         self.lemma_sense_mapping = lemma_sense_mapping
         self.gnn_ukc_mapping = gnn_ukc_mapping
-        self.loss_fn = BCEWithLogitsLoss()
+        self.eval_dir = eval_dir
+        self.all_eval_scores = []
+        self.loss_fn = CrossEntropyLoss()
 
         DEFAULT_MAX_LENGTH = 512
         self.max_length = min(self.tokenizer.model_max_length, DEFAULT_MAX_LENGTH)
@@ -192,23 +195,57 @@ class Trainer:
                 top1 = self.gnn_ukc_mapping[top1]
                 all_top1.append([sentence_id, top1])
             
-        eval_tempfile = "temp.txt"
+        eval_tempfile = f"validation.epoch{epoch:2d}.txt"
         with open(eval_tempfile, 'w') as file:
             writer = csv.writer(file, delimiter=' ')
             writer.writerows(all_top1)
 
-        gold_standard = 'UKC.gold.key.txt'
-        subprocess_result = subprocess.run(
-            ['java', 'Scorer', gold_standard, eval_tempfile],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
-        key_value_pairs = re.findall('(\\w+)=\\s*([\\d.]+%)', subprocess_result.stdout)
-        parsed_result = {}
-        for key, value in key_value_pairs:
-            parsed_result[key] = value
-        print(f"Epoch {epoch} - F1: {parsed_result['F1']}")
-        
-        os.remove(eval_tempfile)
+        def calculate_scores(directory, epoch, result_filename):
+            result_rows = []
+            gold_standards = [
+                ('ALL', 'UKC.gold.key.txt'),
+                ('Seen Only', 'UKC.in.test.gold.key.txt'),
+                ('Unseen Only', 'UKC.out.test.gold.key.txt'),
+                ('Single Candidate Only', 'UKC.single.test.gold.key.txt'),
+                ('Multiple Candidates Only', 'UKC.multi.test.gold.key.txt'),
+                ('Multiple Candidates Seen Only', 'UKC.multi.in.test.gold.key.txt'),
+                ('Multiple Candidates Unseen Only', 'UKC.multi.out.test.gold.key.txt')
+            ]
+
+            for title, gold_standard in gold_standards:
+                result = subprocess.run(
+                    ['java', "Scorer", f"{directory}/{gold_standard}", result_filename],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+
+                output = result.stdout
+                key_value_pairs = re.findall('(\\w+)=\\s*([\\d.]+%)', output)
+
+                result = {
+                    "Epoch": epoch,
+                    "Criteria": title
+                }
+
+                for key, value in key_value_pairs:
+                    result[key] = value
+
+                result_rows.append(result)
+            return result_rows
+
+        eval_scores = calculate_scores(self.eval_dir, epoch, eval_tempfile)
+
+        with open("validation.log", "a") as f:
+            f.write(f"Epoch {epoch:2d}\n")
+            for row in eval_scores:
+                criteria = row['Criteria']
+                precision = row['P']
+                recall = row['R']
+                f1 = row['F1']
+                f.write(f"  {criteria}\n")
+                f.write(f"    Precision = {precision}\n")
+                f.write(f"    Recall = {recall}\n")
+                f.write(f"    F1 = {f1}\n")
+        self.all_eval_scores.extend(eval_scores)
 
     def _save_checkpoint(self, epoch):
         ckp = self.model.state_dict()
@@ -279,6 +316,8 @@ if __name__ == "__main__":
     parser.add_argument('--ukc_filename', type=str, default='ukc.csv')
     parser.add_argument('--edges_filename', type=str, default='edges.csv')
 
+    parser.add_argument('--eval_dir', type=str, default='eval-gold-standard', help='directory where eval gold standard files are located')
+
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
@@ -335,5 +374,6 @@ if __name__ == "__main__":
         gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
         lemma_sense_mapping=lemma_sense_mapping,
-        gnn_ukc_mapping=gnn_ukc_mapping)
+        gnn_ukc_mapping=gnn_ukc_mapping,
+        eval_dir=args.eval_dir)
     trainer.train(args.total_epochs)

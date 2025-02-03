@@ -180,7 +180,7 @@ def build_dataframes(train_filename: str,
                      small: bool=False
                      ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     train_df = parse_train_file(train_filename, ukc_gnn_mapping, small)
-    eval_df = parse_test_file(eval_filename, ukc_gnn_mapping, small)
+    eval_df = parse_test_file(eval_filename, ukc_gnn_mapping) # eval dataset is already small
     test_df = parse_test_file(test_filename, ukc_gnn_mapping, small)
     return train_df, eval_df, test_df
 
