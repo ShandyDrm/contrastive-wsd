@@ -65,7 +65,7 @@ class Trainer:
         loss_tensor = loss.clone().detach().to(torch.float32)
 
         with open("loss.log", "a") as f:
-            f.write(f"Epoch {epoch:2d} | Batch {batch_number:5d} | Average Loss: {loss_tensor:.3f} | LR: {self.scheduler.get_last_lr()[0]:.10f} | SchStep: {self.scheduler._step_count:5d}\n")
+            f.write(f"Epoch {epoch:02d} | Batch {batch_number:5d} | Average Loss: {loss_tensor:.3f} | LR: {self.scheduler.get_last_lr()[0]:.10f} | SchStep: {self.scheduler._step_count:5d}\n")
 
     def _log_gradient_norm(self, epoch: int, batch_number: int):
         total_gradient_norm = 0.0
@@ -75,7 +75,7 @@ class Trainer:
             total_gradient_norm = total_gradient_norm ** 0.5
 
         with open("gradient_norm.log", "a") as f:
-            f.write(f"Epoch {epoch:2d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
+            f.write(f"Epoch {epoch:02d} | Batch {batch_number:4d} | Gradient Norm: {total_gradient_norm:.10f}\n")
 
     def _calculate_loss(self, input_embeddings, gnn_vector):
         logits = torch.matmul(input_embeddings, gnn_vector.T)
@@ -195,7 +195,7 @@ class Trainer:
                 top1 = self.gnn_ukc_mapping[top1]
                 all_top1.append([sentence_id, top1])
             
-        eval_tempfile = f"validation.epoch{epoch:2d}.txt"
+        eval_tempfile = f"validation.epoch{epoch:02d}.txt"
         with open(eval_tempfile, 'w') as file:
             writer = csv.writer(file, delimiter=' ')
             writer.writerows(all_top1)
@@ -235,7 +235,7 @@ class Trainer:
         eval_scores = calculate_scores(self.eval_dir, epoch, eval_tempfile)
 
         with open("validation.log", "a") as f:
-            f.write(f"Epoch {epoch:2d}\n")
+            f.write(f"Epoch {epoch:02d}\n")
             for row in eval_scores:
                 criteria = row['Criteria']
                 precision = row['P']
