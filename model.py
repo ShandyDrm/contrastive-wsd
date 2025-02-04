@@ -59,7 +59,7 @@ class ContrastiveWSD(torch.nn.Module):
                 return gat_embeddings, None
 
         encoded_inputs = self.encoder(**tokenized_sentences)
-        aggregated_hidden_states = sum(encoded_inputs.hidden_states[layer] for layer in [-4, -3, -2, 1])
+        aggregated_hidden_states = sum(encoded_inputs.hidden_states[layer] for layer in [-4, -3, -2, -1])
         refined_embeddings = []
         for idx in range(aggregated_hidden_states.shape[0]):
             token_ids = tokenized_sentences.word_ids(idx)
