@@ -65,7 +65,8 @@ class Evaluator:
                                                  max_length=self.max_length
                                                  ).to(self.device)
 
-            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
+            with torch.no_grad():
+                input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
 
             if self.cosine_similarity:
                 input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
@@ -149,6 +150,7 @@ if __name__ == "__main__":
                 gat_self_loops=args.gat_self_loops,
                 gat_residual=args.gat_residual
             ).to(device)
+            model.eval()
 
             if filename:
                 model.load_state_dict(torch.load(filename, weights_only=True, map_location=torch.device(device)))
