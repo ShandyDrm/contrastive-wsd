@@ -327,7 +327,13 @@ if __name__ == "__main__":
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-    tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    base_model = args.base_model
+
+    tokenizer_args = {}
+    if "roberta" in base_model:
+        tokenizer_args["add_prefix_space"] = True
+
+    tokenizer = AutoTokenizer.from_pretrained(base_model, **tokenizer_args)
 
     ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
@@ -341,7 +347,7 @@ if __name__ == "__main__":
     lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
     model = ContrastiveWSD(
-        args.base_model,
+        base_model,
         hidden_size=args.hidden_size,
         gat_heads=args.gat_heads,
         gat_self_loops=args.gat_self_loops,
