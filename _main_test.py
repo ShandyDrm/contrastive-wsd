@@ -136,6 +136,9 @@ if __name__ == "__main__":
     tokenizer_args = {}
     if "roberta" in base_model:
         tokenizer_args["add_prefix_space"] = True
+    if "ModernBERT" in base_model:
+        import torch._dynamo
+        torch._dynamo.config.suppress_errors = True
 
     tokenizer = AutoTokenizer.from_pretrained(base_model, **tokenizer_args)
 
