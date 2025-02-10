@@ -169,9 +169,31 @@ def build_ukc(ukc_filename: str, edges_file: str, ukc_num_neighbors: list=[8, 8]
     ukc_gnn_mapping = dict(zip(ukc_df['ukc_id'], ukc_df['gnn_id']))
     gnn_ukc_mapping = dict(zip(ukc_df['gnn_id'], ukc_df['ukc_id']))
     edges = process_edges(edges_file, ukc_gnn_mapping)
-    ukc = UKC(ukc_df, edges, ukc_num_neighbors)
+    ukc = UKC(ukc_df, edges, ukc_num_neighbors, no_gloss)
 
     return ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping
+
+def build_ukc_df_lemmas_only(ukc_lemmas_filename: str) -> pd.DataFrame:
+    # build mapping ukc_id -> [gnn_id, List[lemmas]]
+    mapping = {}
+    with open(ukc_lemmas_filename, "r") as f:
+        next(f)   # skip header
+        for row in f:
+            ukc_id, gnn_id, lemma = row.strip().split(",")
+            ukc_id = int(ukc_id)
+            gnn_id = int(gnn_id)
+            if ukc_id in mapping:
+                mapping[ukc_id][1].append(lemma)
+            else:
+                mapping[ukc_id] = [gnn_id, [lemma]]
+    
+    # Dict(ukc_id -> [gnn_id, list of lemmas]) -> List(ukc_id, gnn_id, List[lemmas])
+    all_rows = []
+    for _ukc_id in mapping:
+        _gnn_id, _lemmas = mapping[_ukc_id]
+        all_rows.append([_ukc_id, _gnn_id, _lemmas])
+
+    return pd.DataFrame(all_rows, columns=["ukc_id", "gnn_id", "lemmas"])
 
 def build_dataframes(train_filename: str,
                      eval_filename: str,

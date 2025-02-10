@@ -34,7 +34,8 @@ class Trainer:
         polysemy_sampler: PolysemySampler,
         lemma_sense_mapping: dict,
         gnn_ukc_mapping: dict,
-        eval_dir: str
+        eval_dir: str,
+        no_gloss: bool,
     ) -> None:
         self.model = model.to(device)
         self.device = device
@@ -55,6 +56,7 @@ class Trainer:
         self.lemma_sense_mapping = lemma_sense_mapping
         self.gnn_ukc_mapping = gnn_ukc_mapping
         self.eval_dir = eval_dir
+        self.no_gloss = no_gloss
         self.all_eval_scores = []
         self.loss_fn = CrossEntropyLoss()
 
@@ -90,6 +92,9 @@ class Trainer:
         return loss
 
     def _run_batch(self, batch, train=True):
+        if train:
+            self.optimizer.zero_grad()
+
         ids = batch["id"]
         lemmas = batch["lemma"]
         pos = batch["pos"]
@@ -100,10 +105,10 @@ class Trainer:
         negative_from_polysemy = []
         for _lemma, _pos, _labels in zip(lemmas, pos, answers_ukc):
             lemma_pos = f"{_lemma}_{_pos}"
-            if lemma_pos not in lemma_sense_mapping:
+            if lemma_pos not in self.lemma_sense_mapping:
                 continue
 
-            possible_senses = set(lemma_sense_mapping[lemma_pos]) - set([_labels])
+            possible_senses = set(self.lemma_sense_mapping[lemma_pos]) - set([_labels])
 
             if len(possible_senses) > 0:   # possible polysemy
                 k = 1
@@ -115,10 +120,6 @@ class Trainer:
         all_samples = exclude_from_sampling + list(gloss_samples["gnn_id"])
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
-        glosses, edges = self.ukc.sample(all_samples_tensor)
-        tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-        edges = edges.to(self.device)
-
         tokenized_sentences = self.tokenizer(sentence,
                                              is_split_into_words=True,
                                              padding=True,
@@ -127,10 +128,19 @@ class Trainer:
                                              max_length=self.max_length
                                              ).to(self.device)
 
-        if train:
-            self.optimizer.zero_grad()
+        if self.no_gloss:
+            lemmas, edges, lemma_counter = self.ukc.sample(all_samples_tensor)
+            tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+            edges = edges.to(self.device)
 
-        input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
+            input_embeddings, gnn_vector = self.model(tokenized_lemmas, loc, tokenized_glosses, edges, len(all_samples), lemma_counter=lemma_counter)
+        else:
+            glosses, edges = self.ukc.sample(all_samples_tensor)
+            tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+            edges = edges.to(self.device)
+
+            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
+
         loss = self._calculate_loss(input_embeddings, gnn_vector)
 
         if train:
@@ -167,10 +177,6 @@ class Trainer:
 
             candidates_ukc = torch.tensor(candidates_ukc)
 
-            glosses, edges = self.ukc.sample(candidates_ukc)
-            tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-            edges = edges.to(self.device)
-
             tokenized_sentences = self.tokenizer(sentence,
                                                  is_split_into_words=True,
                                                  padding=True,
@@ -178,8 +184,19 @@ class Trainer:
                                                  return_tensors="pt",
                                                  max_length=self.max_length
                                                  ).to(self.device)
+            
+            if self.no_gloss:
+                lemmas, edges, lemma_counter = self.ukc.sample(candidates_ukc)
+                tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+                edges = edges.to(self.device)
 
-            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
+                input_embeddings, gnn_vector = self.model(tokenized_lemmas, loc, tokenized_glosses, edges, len(candidates_ukc), lemma_counter=lemma_counter)
+            else:
+                glosses, edges = self.ukc.sample(candidates_ukc)
+                tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+                edges = edges.to(self.device)
+
+                input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
 
             for i, (start, end) in enumerate(candidate_id_ranges):
                 sentence_id = sentence_ids[i]
@@ -321,6 +338,8 @@ if __name__ == "__main__":
     parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
+
+    parser.add_argument('--no_gloss', type=bool, default=False, help="if enabled, GAT will use lemmas instead of gloss, default=False")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -338,51 +357,56 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(base_model, **tokenizer_args)
 
-    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_gloss_filename,
+                                                              args.ukc_lemmas_filename,
+                                                              args.edges_filename,
+                                                              args.ukc_num_neighbors,
+                                                              args.no_gloss)
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
 
-    train_data = prepare_dataloader(train_dataset, args.batch_size, True, TrainDataCollator())
-    eval_data = prepare_dataloader(eval_dataset, args.batch_size, False, TestDataCollator())
+    # train_data = prepare_dataloader(train_dataset, args.batch_size, True, TrainDataCollator())
+    # eval_data = prepare_dataloader(eval_dataset, args.batch_size, False, TestDataCollator())
 
-    gloss_sampler = GlossSampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
-    polysemy_sampler = PolysemySampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
-    lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
+    # gloss_sampler = GlossSampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
+    # polysemy_sampler = PolysemySampler(train_df, ukc_df, ukc_gnn_mapping, args.seed)
+    # lemma_sense_mapping = generate_lemma_sense_mapping(args.lemma_sense_mapping)
 
-    model = ContrastiveWSD(
-        base_model,
-        hidden_size=args.hidden_size,
-        gat_heads=args.gat_heads,
-        gat_self_loops=args.gat_self_loops,
-        gat_residual=args.gat_residual
-    ).to(device)
+    # model = ContrastiveWSD(
+    #     base_model,
+    #     hidden_size=args.hidden_size,
+    #     gat_heads=args.gat_heads,
+    #     gat_self_loops=args.gat_self_loops,
+    #     gat_residual=args.gat_residual
+    # ).to(device)
 
-    if (args.resume_from != 0):
-        model_name = f"checkpoint_{args.resume_from:02d}.pt"
-        model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
+    # if (args.resume_from != 0):
+    #     model_name = f"checkpoint_{args.resume_from:02d}.pt"
+    #     model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
 
-    T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
-    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
+    # T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
+    # scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
 
-    trainer = Trainer(
-        model=model,
-        device=device,
-        train_data=train_data,
-        eval_data=eval_data,
-        optimizer=optimizer,
-        use_scheduler=args.use_scheduler,
-        scheduler=scheduler,
-        scheduler_step=args.scheduler_step,
-        validate_every=args.validate_every,
-        ukc=ukc,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        resume_from=args.resume_from,
-        gloss_sampler=gloss_sampler,
-        polysemy_sampler=polysemy_sampler,
-        lemma_sense_mapping=lemma_sense_mapping,
-        gnn_ukc_mapping=gnn_ukc_mapping,
-        eval_dir=args.eval_dir)
-    trainer.train(args.total_epochs)
+    # trainer = Trainer(
+    #     model=model,
+    #     device=device,
+    #     train_data=train_data,
+    #     eval_data=eval_data,
+    #     optimizer=optimizer,
+    #     use_scheduler=args.use_scheduler,
+    #     scheduler=scheduler,
+    #     scheduler_step=args.scheduler_step,
+    #     validate_every=args.validate_every,
+    #     ukc=ukc,
+    #     tokenizer=tokenizer,
+    #     batch_size=args.batch_size,
+    #     resume_from=args.resume_from,
+    #     gloss_sampler=gloss_sampler,
+    #     polysemy_sampler=polysemy_sampler,
+    #     lemma_sense_mapping=lemma_sense_mapping,
+    #     gnn_ukc_mapping=gnn_ukc_mapping,
+    #     eval_dir=args.eval_dir,
+    #     no_gloss=args.no_gloss)
+    # trainer.train(args.total_epochs)
