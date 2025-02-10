@@ -11,7 +11,8 @@ class ContrastiveWSD(torch.nn.Module):
                  dropout_p: float = 0.1,
                  gat_heads: int = 1,
                  gat_self_loops: bool = True,
-                 gat_residual: bool = False):
+                 gat_residual: bool = False,
+                 no_gloss: bool = False):
         super().__init__()
 
         self.encoder = AutoModel.from_pretrained(base_model, output_hidden_states=True)
@@ -38,6 +39,8 @@ class ContrastiveWSD(torch.nn.Module):
         self.gat3 = GATv2Conv(self.hidden_size, self.hidden_size, heads=gat_heads, concat=False, add_self_loops=gat_self_loops, residual=gat_residual)
         self.concept_norm_gelu_dropout3 = get_norm_gelu_dropout(self.hidden_size, dropout_p)
 
+        self.no_gloss = no_gloss
+
     def find_relevant_subwords_indices(self, word_ids, loc):
         relevant_subwords_idx = []
         word_ids_idx = 1   # skip [CLS]
@@ -50,7 +53,7 @@ class ContrastiveWSD(torch.nn.Module):
 
         return relevant_subwords_idx
 
-    def forward(self, tokenized_sentences, text_positions, tokenized_glosses, edges, labels_size, return_attention_weights=False):
+    def forward(self, tokenized_sentences, text_positions, tokenized_ukc_entities, edges, labels_size, lemma_counter=None, return_attention_weights=False):
         def gat_forward(gat_layer: GATv2Conv, embeddings, edges, return_attention_weights):
             if return_attention_weights:
                 return gat_layer.forward(embeddings, edges, return_attention_weights=True)
@@ -73,17 +76,30 @@ class ContrastiveWSD(torch.nn.Module):
         refined_embeddings = self.word_linear(refined_embeddings)
         refined_embeddings = self.word_norm_gelu_dropout1(refined_embeddings)
 
-        glosses_embeddings = self.encoder(**tokenized_glosses).last_hidden_state[:, 0, :]
-        glosses_embeddings = self.concept_linear(glosses_embeddings)
-        glosses_embeddings = self.concept_norm_gelu_dropout1(glosses_embeddings)
+        if self.no_gloss:
+            # uses lemmas
+            lemmas_embeddings = self.encoder(**tokenized_ukc_entities).last_hidden_state
 
-        glosses_embeddings, attention_weights_gat2 = gat_forward(self.gat2, glosses_embeddings, edges, return_attention_weights)
-        glosses_embeddings = self.concept_norm_gelu_dropout2(glosses_embeddings)
+            tensors = []
+            for i, j in lemma_counter:
+                tensors.append(lemmas_embeddings[i:j, 0, :].mean(dim=0))
+            
+            ukc_embeddings = torch.stack(tensors)
 
-        glosses_embeddings, attention_weights_gat3 = gat_forward(self.gat3, glosses_embeddings, edges, return_attention_weights)
-        glosses_embeddings = self.concept_norm_gelu_dropout3(glosses_embeddings)
+        else:
+            # uses gloss
+            ukc_embeddings = self.encoder(**tokenized_ukc_entities).last_hidden_state[:, 0, :]
 
-        gnn_vector = glosses_embeddings[:labels_size] # because the subgraphs also include surrounding nodes
+        ukc_embeddings = self.concept_linear(ukc_embeddings)
+        ukc_embeddings = self.concept_norm_gelu_dropout1(ukc_embeddings)
+
+        ukc_embeddings, attention_weights_gat2 = gat_forward(self.gat2, ukc_embeddings, edges, return_attention_weights)
+        ukc_embeddings = self.concept_norm_gelu_dropout2(ukc_embeddings)
+
+        ukc_embeddings, attention_weights_gat3 = gat_forward(self.gat3, ukc_embeddings, edges, return_attention_weights)
+        ukc_embeddings = self.concept_norm_gelu_dropout3(ukc_embeddings)
+
+        gnn_vector = ukc_embeddings[:labels_size] # because the subgraphs also include surrounding nodes
 
         if return_attention_weights:
             return refined_embeddings, gnn_vector, attention_weights_gat2, attention_weights_gat3
