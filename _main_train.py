@@ -91,6 +91,30 @@ class Trainer:
         loss = (loss_i + loss_t)/2
         return loss
 
+    def forward(self, sentence, candidates, loc, all_samples):
+        tokenized_sentences = self.tokenizer(sentence,
+                                             is_split_into_words=True,
+                                             padding=True,
+                                             truncation=True,
+                                             return_tensors="pt",
+                                             max_length=self.max_length
+                                             ).to(self.device)
+
+        if self.no_gloss:
+            lemmas, edges, lemma_counter = self.ukc.sample(candidates)
+            tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+            edges = edges.to(self.device)
+
+            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_lemmas, edges, len(all_samples), lemma_counter=lemma_counter)
+        else:
+            glosses, edges = self.ukc.sample(candidates)
+            tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+            edges = edges.to(self.device)
+
+            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
+
+        return input_embeddings, gnn_vector
+
     def _run_batch(self, batch, train=True):
         if train:
             self.optimizer.zero_grad()
@@ -120,26 +144,7 @@ class Trainer:
         all_samples = exclude_from_sampling + list(gloss_samples["gnn_id"])
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
-        tokenized_sentences = self.tokenizer(sentence,
-                                             is_split_into_words=True,
-                                             padding=True,
-                                             truncation=True,
-                                             return_tensors="pt",
-                                             max_length=self.max_length
-                                             ).to(self.device)
-
-        if self.no_gloss:
-            lemmas, edges, lemma_counter = self.ukc.sample(all_samples_tensor)
-            tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-            edges = edges.to(self.device)
-
-            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_lemmas, edges, len(all_samples), lemma_counter=lemma_counter)
-        else:
-            glosses, edges = self.ukc.sample(all_samples_tensor)
-            tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-            edges = edges.to(self.device)
-
-            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
+        input_embeddings, gnn_vector = self.forward(sentence, all_samples_tensor, loc, all_samples)
 
         loss = self._calculate_loss(input_embeddings, gnn_vector)
 
@@ -165,7 +170,7 @@ class Trainer:
             if (batch_number % 16 == 0):
                 self._log_loss_distributed(loss, epoch=epoch, batch_number=batch_number)
                 self._log_gradient_norm(epoch, batch_number)
-
+    
     def _validate(self, epoch):
         all_top1, all_scores = [], []
         for batch in tqdm(self.eval_data):
@@ -177,26 +182,7 @@ class Trainer:
 
             candidates_ukc = torch.tensor(candidates_ukc)
 
-            tokenized_sentences = self.tokenizer(sentence,
-                                                 is_split_into_words=True,
-                                                 padding=True,
-                                                 truncation=True,
-                                                 return_tensors="pt",
-                                                 max_length=self.max_length
-                                                 ).to(self.device)
-            
-            if self.no_gloss:
-                lemmas, edges, lemma_counter = self.ukc.sample(candidates_ukc)
-                tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-                edges = edges.to(self.device)
-
-                input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_lemmas, edges, len(candidates_ukc), lemma_counter=lemma_counter)
-            else:
-                glosses, edges = self.ukc.sample(candidates_ukc)
-                tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-                edges = edges.to(self.device)
-
-                input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
+            input_embeddings, gnn_vector = self.forward(sentence, candidates_ukc, loc, candidates_ukc)
 
             for i, (start, end) in enumerate(candidate_id_ranges):
                 sentence_id = sentence_ids[i]
