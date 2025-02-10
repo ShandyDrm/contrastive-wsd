@@ -53,7 +53,14 @@ class ContrastiveWSD(torch.nn.Module):
 
         return relevant_subwords_idx
 
-    def forward(self, tokenized_sentences, text_positions, tokenized_ukc_entities, edges, labels_size, lemma_counter=None, return_attention_weights=False):
+    def forward(self,
+                tokenized_sentences,
+                text_positions,
+                tokenized_ukc_entities,
+                edges,
+                labels_size,
+                lemma_counter=None,
+                return_attention_weights=False):
         def gat_forward(gat_layer: GATv2Conv, embeddings, edges, return_attention_weights):
             if return_attention_weights:
                 return gat_layer.forward(embeddings, edges, return_attention_weights=True)

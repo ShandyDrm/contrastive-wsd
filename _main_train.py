@@ -17,7 +17,7 @@ from utils import GlossSampler, PolysemySampler
 class Trainer:
     def __init__(
         self,
-        model: torch.nn.Module,
+        model: ContrastiveWSD,
         device: str,
         train_data: DataLoader,
         eval_data: DataLoader,
@@ -133,7 +133,7 @@ class Trainer:
             tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
             edges = edges.to(self.device)
 
-            input_embeddings, gnn_vector = self.model(tokenized_lemmas, loc, tokenized_glosses, edges, len(all_samples), lemma_counter=lemma_counter)
+            input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_lemmas, edges, len(all_samples), lemma_counter=lemma_counter)
         else:
             glosses, edges = self.ukc.sample(all_samples_tensor)
             tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
@@ -190,7 +190,7 @@ class Trainer:
                 tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
                 edges = edges.to(self.device)
 
-                input_embeddings, gnn_vector = self.model(tokenized_lemmas, loc, tokenized_glosses, edges, len(candidates_ukc), lemma_counter=lemma_counter)
+                input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_lemmas, edges, len(candidates_ukc), lemma_counter=lemma_counter)
             else:
                 glosses, edges = self.ukc.sample(candidates_ukc)
                 tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
@@ -357,8 +357,7 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(base_model, **tokenizer_args)
 
-    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_gloss_filename,
-                                                              args.ukc_lemmas_filename,
+    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename,
                                                               args.edges_filename,
                                                               args.ukc_num_neighbors,
                                                               args.no_gloss)
