@@ -9,8 +9,12 @@ class UKC():
     def __init__(self, ukc_df, edges, num_neighbors=[8, 8]):
         self.ukc_df = ukc_df
 
-        edge_index = torch.Tensor(edges).T.to(torch.long)
-        pyg_data = Data(x=torch.arange(len(ukc_df)).to(torch.long), edge_index=edge_index).contiguous()
+        data_len = ukc_df["gnn_id"].max()
+        x = torch.arange(data_len, dtype=torch.long)
+
+        edge_index = torch.tensor(edges, dtype=torch.long).T
+
+        pyg_data = Data(x=x, edge_index=edge_index).contiguous()
         self.sampler = NeighborSampler(data=pyg_data, num_neighbors=num_neighbors)
 
     def sample(self, node_ids: torch.Tensor) -> tuple[List[str], torch.Tensor, List[str], torch.Tensor] :

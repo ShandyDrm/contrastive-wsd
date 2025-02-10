@@ -116,7 +116,7 @@ if __name__ == "__main__":
     parser.add_argument('--train_filename', type=str, default='train.complete.data.json')
     parser.add_argument('--eval_filename', type=str, default='eval.complete.data.json')
     parser.add_argument('--test_filename', type=str, default='test.complete.data.json')
-    parser.add_argument('--ukc_filename', type=str, default='ukc.csv')
+    parser.add_argument('--ukc_filename', type=str, default='ukc.json')
     parser.add_argument('--edges_filename', type=str, default='edges.csv')
 
     parser.add_argument('--test_dir', type=str, default='test-gold-standard', help='directory where test gold standard files are located')
