@@ -25,7 +25,8 @@ class Evaluator:
         tokenizer: PreTrainedTokenizer,
         batch_size: int,
         cosine_similarity: bool,
-        gnn_ukc_mapping: dict
+        gnn_ukc_mapping: dict,
+        no_gloss: bool
     ) -> None:
         self.id = id
         self.model = model.to(device)
@@ -36,6 +37,7 @@ class Evaluator:
         self.batch_size = batch_size
         self.cosine_similarity = cosine_similarity
         self.gnn_ukc_mapping = gnn_ukc_mapping
+        self.no_gloss = no_gloss
 
         self.temperature = 0.07
 
@@ -53,10 +55,6 @@ class Evaluator:
 
             candidates_ukc = torch.tensor(candidates_ukc)
 
-            glosses, edges = self.ukc.sample(candidates_ukc)
-            tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
-            edges = edges.to(self.device)
-
             tokenized_sentences = self.tokenizer(sentence,
                                                  is_split_into_words=True,
                                                  padding=True,
@@ -65,8 +63,20 @@ class Evaluator:
                                                  max_length=self.max_length
                                                  ).to(self.device)
 
-            with torch.no_grad():
-                input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
+            if self.no_gloss:
+                lemmas, edges, lemma_counter = self.ukc.sample(candidates_ukc)
+                tokenized_lemmas = self.tokenizer(lemmas, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+                edges = edges.to(self.device)
+
+                with torch.no_grad():
+                    input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_lemmas, edges, len(candidates_ukc), lemma_counter=lemma_counter)
+            else:
+                glosses, edges = self.ukc.sample(candidates_ukc)
+                tokenized_glosses = self.tokenizer(glosses, padding=True, truncation=True, return_tensors="pt", max_length=self.max_length).to(self.device)
+                edges = edges.to(self.device)
+
+                with torch.no_grad():
+                    input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(candidates_ukc))
 
             if self.cosine_similarity:
                 input_embeddings = F.normalize(input_embeddings, p=2, dim=1)
@@ -125,6 +135,7 @@ if __name__ == "__main__":
     parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
     parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
 
+    parser.add_argument('--no_gloss', type=bool, default=False, help="if enabled, GAT will use lemmas instead of gloss, default=False")
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
@@ -142,7 +153,10 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(base_model, **tokenizer_args)
 
-    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename, args.edges_filename, args.ukc_num_neighbors)
+    ukc, ukc_df, ukc_gnn_mapping, gnn_ukc_mapping = build_ukc(args.ukc_filename,
+                                                              args.edges_filename,
+                                                              args.ukc_num_neighbors,
+                                                              args.no_gloss)
     train_df, eval_df, test_df = build_dataframes(args.train_filename, args.eval_filename, args.test_filename, ukc_gnn_mapping, args.small)
     train_dataset, eval_dataset, test_dataset = build_dataset(train_df, eval_df, test_df, tokenizer)
     test_data = prepare_dataloader(test_dataset, args.batch_size, tokenizer)
@@ -173,7 +187,8 @@ if __name__ == "__main__":
                 tokenizer=tokenizer,
                 batch_size=args.batch_size,
                 cosine_similarity=cosine_similarity,
-                gnn_ukc_mapping=gnn_ukc_mapping
+                gnn_ukc_mapping=gnn_ukc_mapping,
+                no_gloss=args.no_gloss
             )
             all_top1, all_scores = evaluator.validate()
 
