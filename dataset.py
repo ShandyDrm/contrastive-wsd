@@ -17,15 +17,12 @@ def process_edges(filename, mapping):
         edges = [row for row in reader]
 
     edges = edges[1:] # clear header
-    edges = [[int(x), int(y)] for x, y in edges]
     print("end processing edges\n", flush=True)
 
     print("start mapping edges", flush=True)
     # map edges data from ukc to gnn
     mapped_edges = []
     for source, target in edges:
-        source = int(source)
-        target = int(target)
         if source not in mapping or target not in mapping:
             # skip if not in mapping
             # i hope this does not bite me back later
