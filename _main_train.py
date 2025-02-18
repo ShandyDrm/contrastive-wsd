@@ -361,7 +361,7 @@ if __name__ == "__main__":
         model_name = f"checkpoint_{args.resume_from:02d}.pt"
         model.load_state_dict(torch.load(model_name, weights_only=True, map_location=torch.device(device)))
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.RAdam(model.parameters(), lr=args.learning_rate)
 
     T_max = (len(train_dataset) * args.total_epochs) / (args.batch_size * args.scheduler_step)
     scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=T_max)
