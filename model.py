@@ -59,27 +59,25 @@ class ContrastiveWSD(torch.nn.Module):
         return relevant_subwords_idx
 
     def forward(self, tokenized_sentences, text_positions, tokenized_glosses, edges, labels_size, return_attention_weights=False):
-        encoded_inputs = self.encoder(**tokenized_sentences)
-        aggregated_hidden_states = sum(encoded_inputs.hidden_states[layer] for layer in [-4, -3, -2, -1])
-        refined_embeddings = []
-        for idx in range(aggregated_hidden_states.shape[0]):
+        sentence_embeddings = self.encoder(**tokenized_sentences)
+        sentence_hidden_states = sum(sentence_embeddings.hidden_states[layer] for layer in [-4, -3, -2, -1])
+        context_embeddings = []
+        for idx in range(sentence_hidden_states.shape[0]):
             token_ids = tokenized_sentences.word_ids(idx)
             position = text_positions[idx]
             selected_subwords = self.find_relevant_subwords_indices(token_ids, position)
 
-            summed_vectors = sum(aggregated_hidden_states[idx, sub_idx, :] for sub_idx in selected_subwords)
-            refined_embeddings.append(summed_vectors)
+            summed_vectors = sum(sentence_hidden_states[idx, sub_idx, :] for sub_idx in selected_subwords)
+            context_embeddings.append(summed_vectors)
 
-        refined_embeddings = torch.stack(refined_embeddings)
-        processed_embeddings = 2 * self.word_layers(refined_embeddings) - 1
-        processed_embeddings = refined_embeddings + self.eps * torch.norm(refined_embeddings, p=2, dim=1).unsqueeze(1) * processed_embeddings
+        context_x0 = torch.stack(context_embeddings)
+        context_x1 = 2 * self.word_layers(context_x0) - 1
+        context_residual = context_x0 + self.eps * torch.norm(context_x0, p=2, dim=1).unsqueeze(1) * context_x1
 
         glosses_x0 = self.encoder(**tokenized_glosses).last_hidden_state[:, 0, :]
         glosses_x1 = glosses_x0 + self.post_gat1(self.gat1(glosses_x0, edges))
         glosses_x2 = glosses_x1 + self.post_gat2(self.gat2(glosses_x1, edges))
         glosses_x2 = 2 * glosses_x2 - 1
-        glosses_embeddings = glosses_x0 + self.eps * torch.norm(glosses_x0, p=2, dim=1).unsqueeze(1) * glosses_x2
+        glosses_residual = glosses_x0 + self.eps * torch.norm(glosses_x0, p=2, dim=1).unsqueeze(1) * glosses_x2
 
-        gnn_vector = glosses_embeddings[:labels_size] # because the subgraphs also include surrounding nodes
-
-        return processed_embeddings, gnn_vector
+        return context_residual, glosses_residual[:labels_size] # because the subgraphs also include surrounding nodes
