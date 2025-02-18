@@ -351,10 +351,7 @@ if __name__ == "__main__":
 
     model = ContrastiveWSD(
         base_model,
-        hidden_size=args.hidden_size,
         gat_heads=args.gat_heads,
-        gat_self_loops=args.gat_self_loops,
-        gat_residual=args.gat_residual
     ).to(device)
 
     if (args.resume_from != 0):
