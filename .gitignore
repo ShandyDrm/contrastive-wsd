@@ -181,3 +181,7 @@ analysis.py
 analysis/
 eval-gold-standard/
 test-gold-standard/
+
+# pytorch lightning and wandb
+lightning_logs/
+wandb/
