@@ -305,9 +305,12 @@ def generate_lemma_sense_mapping(lemma_sense_mapping_csv):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description='Script for training Contrastive WSD model')
+    parser.add_argument('--project_name', type=str, help='Project name for logging')
+
     parser.add_argument('--seed', default=42, type=int, help='Seed to be used for random number generators')
     parser.add_argument('--total_epochs', default=8, type=int, help='Total epochs to train the model (default: 8)')
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
+    parser.add_argument('--accumulate_grad_batches', default=1, type=int, help='Accumulates gradients over k batches before stepping the optimizer (default: 1)')
     parser.add_argument('--learning_rate', default=1e-5, type=float, help="learning rate, default=1e-5")
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
@@ -397,8 +400,17 @@ if __name__ == "__main__":
         eval_dir=args.eval_dir,
         test_dir=args.test_dir)
 
-    wandb_logger = WandbLogger(log_model="all")
+    wandb_logger = WandbLogger(
+        project=args.project_name
+    )
 
+    wandb_logger.experiment.config.update({
+        "base_model": args.base_model,
+        "learning_rate": args.learning_rate,
+        "attention_multihead": args.gat_heads,
+        "scheduler": "ReduceLROnPlateau"
+    })
+    
     early_stop_callback = EarlyStopping(
         monitor="eval_f1_score",
         min_delta=0.00,
@@ -414,6 +426,7 @@ if __name__ == "__main__":
         default_root_dir="checkpoints/",
         logger=wandb_logger,
         max_epochs=args.total_epochs,
+        accumulate_grad_batches=args.accumulate_grad_batches,
         val_check_interval=0.125
     )
     trainer.fit(model=pl_model,
