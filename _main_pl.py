@@ -18,7 +18,7 @@ from utils import GlossSampler, PolysemySampler
 import lightning as L
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.loggers import WandbLogger
-from lightning.pytorch.callbacks import LearningRateMonitor
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
 
@@ -425,12 +425,18 @@ if __name__ == "__main__":
         patience=8,
         verbose=False,
         mode="max")
+    
+    checkpoint_callback = ModelCheckpoint(
+        save_top_k=1,
+        monitor="eval_f1_score",
+        mode="max"
+    )
 
     lr_monitor = LearningRateMonitor(logging_interval='step')
 
     trainer = L.Trainer(
         accelerator="auto",
-        callbacks=[lr_monitor, early_stop_callback],
+        callbacks=[lr_monitor, early_stop_callback, checkpoint_callback],
         default_root_dir="checkpoints/",
         logger=wandb_logger,
         max_epochs=args.total_epochs,
@@ -442,6 +448,6 @@ if __name__ == "__main__":
                 train_dataloaders=train_data,
                 val_dataloaders=eval_data)
     
+    best_model = pl_model.load_from_checkpoint(checkpoint_callback.best_model_path)
     trainer.test(model=pl_model,
                  dataloaders=test_data)
-
