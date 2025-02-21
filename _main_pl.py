@@ -448,6 +448,21 @@ if __name__ == "__main__":
                 train_dataloaders=train_data,
                 val_dataloaders=eval_data)
     
-    best_model = pl_model.load_from_checkpoint(checkpoint_callback.best_model_path)
+    best_model = LitContrastiveWSD.load_from_checkpoint(
+        checkpoint_callback.best_model_path,
+        model=model,
+        device=device,
+        tokenizer=tokenizer,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        scheduler_patience=args.scheduler_patience,
+        ukc=ukc,
+        gloss_sampler=gloss_sampler,
+        polysemy_sampler=polysemy_sampler,
+        lemma_sense_mapping=lemma_sense_mapping,
+        gnn_ukc_mapping=gnn_ukc_mapping,
+        eval_dir=args.eval_dir,
+        test_dir=args.test_dir)
+
     trainer.test(model=pl_model,
                  dataloaders=test_data)
