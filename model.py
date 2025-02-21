@@ -1,4 +1,4 @@
-from transformers import AutoModel
+from transformers import AutoModel, AutoConfig
 
 import torch
 from torch.nn import Linear, LayerNorm, GELU, Dropout, Sequential
@@ -15,6 +15,9 @@ class ContrastiveWSD(torch.nn.Module):
         super().__init__()
 
         self.encoder = AutoModel.from_pretrained(base_model, output_hidden_states=True)
+
+        config = AutoConfig.from_pretrained(base_model)
+        self.is_encoder_decoder = config.is_encoder_decoder
 
         self.encoder_size = self.encoder.config.hidden_size
         self.hidden_size = hidden_size
@@ -59,7 +62,12 @@ class ContrastiveWSD(torch.nn.Module):
                 return gat_embeddings, None
 
         encoded_inputs = self.encoder(**tokenized_sentences)
-        aggregated_hidden_states = sum(encoded_inputs.hidden_states[layer] for layer in [-4, -3, -2, -1])
+
+        if self.is_encoder_decoder:
+            aggregated_hidden_states = sum(encoded_inputs.decoder_hidden_states[layer] for layer in [-4, -3, -2, -1])
+        else:
+            aggregated_hidden_states = sum(encoded_inputs.hidden_states[layer] for layer in [-4, -3, -2, -1])
+
         refined_embeddings = []
         for idx in range(aggregated_hidden_states.shape[0]):
             token_ids = tokenized_sentences.word_ids(idx)

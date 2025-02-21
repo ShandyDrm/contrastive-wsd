@@ -344,7 +344,7 @@ if __name__ == "__main__":
     base_model = args.base_model
 
     tokenizer_args = {}
-    if "roberta" in base_model:
+    if "roberta" or "bart" in base_model:
         tokenizer_args["add_prefix_space"] = True
     if "ModernBERT" in base_model:
         import torch._dynamo
