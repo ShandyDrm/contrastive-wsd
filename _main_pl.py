@@ -30,6 +30,7 @@ class LitContrastiveWSD(L.LightningModule):
             tokenizer: PreTrainedTokenizer,
             batch_size: int,
             learning_rate: float,
+            scheduler_patience: int,
             ukc: UKC,
             gloss_sampler: GlossSampler,
             polysemy_sampler: PolysemySampler,
@@ -45,6 +46,7 @@ class LitContrastiveWSD(L.LightningModule):
 
         self.batch_size = batch_size
         self.learning_rate = learning_rate
+        self.scheduler_patience = scheduler_patience
 
         self.ukc = ukc
         self.gloss_sampler = gloss_sampler
@@ -273,7 +275,7 @@ class LitContrastiveWSD(L.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.RAdam(self.parameters(), lr=self.learning_rate)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=self.scheduler_patience)
         return {
             'optimizer': optimizer,
             'lr_scheduler': {
@@ -312,6 +314,7 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
     parser.add_argument('--accumulate_grad_batches', default=1, type=int, help='Accumulates gradients over k batches before stepping the optimizer (default: 1)')
     parser.add_argument('--learning_rate', default=1e-5, type=float, help="learning rate, default=1e-5")
+    parser.add_argument('--scheduler_patience', default=1, type='int')
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
 
@@ -392,6 +395,7 @@ if __name__ == "__main__":
         tokenizer=tokenizer,
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
+        scheduler_patience=args.scheduler_patience,
         ukc=ukc,
         gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
