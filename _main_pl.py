@@ -412,7 +412,8 @@ if __name__ == "__main__":
         "base_model": args.base_model,
         "learning_rate": args.learning_rate,
         "attention_multihead": args.gat_heads,
-        "scheduler": "ReduceLROnPlateau"
+        "scheduler": "ReduceLROnPlateau",
+        "scheduler_patience": args.scheduler_patience
     })
     
     early_stop_callback = EarlyStopping(
