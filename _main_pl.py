@@ -315,6 +315,7 @@ if __name__ == "__main__":
     parser.add_argument('--accumulate_grad_batches', default=1, type=int, help='Accumulates gradients over k batches before stepping the optimizer (default: 1)')
     parser.add_argument('--learning_rate', default=1e-5, type=float, help="learning rate, default=1e-5")
     parser.add_argument('--scheduler_patience', default=1, type='int')
+    parser.add_argument("--precision", default=16, type=int)
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
 
@@ -432,7 +433,8 @@ if __name__ == "__main__":
         logger=wandb_logger,
         max_epochs=args.total_epochs,
         accumulate_grad_batches=args.accumulate_grad_batches,
-        val_check_interval=0.125
+        val_check_interval=0.125,
+        precision=args.precision
     )
     trainer.fit(model=pl_model,
                 train_dataloaders=train_data,
