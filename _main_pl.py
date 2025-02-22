@@ -31,6 +31,7 @@ class LitContrastiveWSD(L.LightningModule):
             batch_size: int,
             learning_rate: float,
             scheduler_patience: int,
+            scheduler_frequency: int,
             ukc: UKC,
             gloss_sampler: GlossSampler,
             polysemy_sampler: PolysemySampler,
@@ -47,6 +48,7 @@ class LitContrastiveWSD(L.LightningModule):
         self.batch_size = batch_size
         self.learning_rate = learning_rate
         self.scheduler_patience = scheduler_patience
+        self.scheduler_frequency = scheduler_frequency
 
         self.ukc = ukc
         self.gloss_sampler = gloss_sampler
@@ -118,7 +120,7 @@ class LitContrastiveWSD(L.LightningModule):
         
         input_embeddings, gnn_vector = self.model(tokenized_sentences, loc, tokenized_glosses, edges, len(all_samples))
         loss = self._calculate_loss(input_embeddings, gnn_vector)
-        self.log('train_loss', loss)
+        self.log('train_loss', loss, on_step=True, prog_bar=True)
         return loss
     
     def validation_step(self, batch, batch_idx):
@@ -280,7 +282,9 @@ class LitContrastiveWSD(L.LightningModule):
             'optimizer': optimizer,
             'lr_scheduler': {
                 'scheduler': scheduler,
-                'monitor': 'eval_f1_score'
+                'monitor': 'eval_f1_score',
+                'interval': 'step',
+                'frequency': self.scheduler_frequency
             }
         }
 
@@ -310,12 +314,15 @@ if __name__ == "__main__":
     parser.add_argument('--project_name', type=str, help='Project name for logging')
 
     parser.add_argument('--seed', default=42, type=int, help='Seed to be used for random number generators')
-    parser.add_argument('--total_epochs', default=8, type=int, help='Total epochs to train the model (default: 8)')
     parser.add_argument('--batch_size', default=32, type=int, help='Input batch size on each device (default: 32)')
-    parser.add_argument('--accumulate_grad_batches', default=1, type=int, help='Accumulates gradients over k batches before stepping the optimizer (default: 1)')
+    parser.add_argument('--max_steps', default=300_000, type=int, help='Maximum number of steps (default: 300_000)')
+    parser.add_argument('--val_check_interval', default=2_000, type=int, help='How often to check the validation set, also used for scheduler frequency (default: 2_000)')
+    parser.add_argument('--gradient_clip_val', default=10, type=int, help='The value at which to clip gradients (default: 10)')
+    parser.add_argument('--accumulate_grad_batches', default=20, type=int, help='Accumulates gradients over k batches before stepping the optimizer (default: 20)')
     parser.add_argument('--learning_rate', default=1e-5, type=float, help="learning rate, default=1e-5")
-    parser.add_argument('--scheduler_patience', default=1, type=int)
-    parser.add_argument('--precision', default='16', type=str)
+    parser.add_argument('--scheduler_patience', default=3, type=int)
+    parser.add_argument('--precision', default='16-mixed', type=str)
+    parser.add_argument('--log_every_n_steps', default=20, type=int)
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
 
@@ -323,9 +330,9 @@ if __name__ == "__main__":
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
 
     parser.add_argument('--hidden_size', type=int, default=256, help="hidden size for the model")
-    parser.add_argument('--gat_heads', type=int, default=1, help="number of multi-head attentions, default=1")
-    parser.add_argument('--gat_self_loops', type=bool, default=True, help="enable attention mechanism to see its own features, default=True")
-    parser.add_argument('--gat_residual', type=bool, default=False, help="enable residual [f(x) = x + g(x)] to graph attention network, default=False")
+    parser.add_argument('--gat_heads', type=int, default=4, help="number of multi-head attentions, default=4")
+    parser.add_argument('--gat_self_loops', type=bool, default=False, help="enable attention mechanism to see its own features, default=False")
+    parser.add_argument('--gat_residual', type=bool, default=True, help="enable residual [f(x) = x + g(x)] to graph attention network, default=True")
 
     parser.add_argument('--train_filename', type=str, default='train.complete.data.json')
     parser.add_argument('--eval_filename', type=str, default='eval.complete.data.json')
@@ -397,6 +404,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         scheduler_patience=args.scheduler_patience,
+        scheduler_frequency=args.val_check_interval,
         ukc=ukc,
         gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
@@ -422,7 +430,7 @@ if __name__ == "__main__":
     early_stop_callback = EarlyStopping(
         monitor="eval_f1_score",
         min_delta=0.00,
-        patience=8,
+        patience=15,
         verbose=False,
         mode="max")
     
@@ -439,10 +447,13 @@ if __name__ == "__main__":
         callbacks=[lr_monitor, early_stop_callback, checkpoint_callback],
         default_root_dir="checkpoints/",
         logger=wandb_logger,
-        max_epochs=args.total_epochs,
+        max_steps=args.max_steps,
+        val_check_interval=args.val_check_interval,
+        check_val_every_n_epoch=None,
+        gradient_clip_val=args.gradient_clip_val,
         accumulate_grad_batches=args.accumulate_grad_batches,
-        val_check_interval=0.125,
-        precision=args.precision
+        precision=args.precision,
+        log_every_n_steps=args.log_every_n_steps,
     )
     trainer.fit(model=pl_model,
                 train_dataloaders=train_data,
@@ -456,6 +467,7 @@ if __name__ == "__main__":
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         scheduler_patience=args.scheduler_patience,
+        scheduler_frequency=args.val_check_interval,
         ukc=ukc,
         gloss_sampler=gloss_sampler,
         polysemy_sampler=polysemy_sampler,
