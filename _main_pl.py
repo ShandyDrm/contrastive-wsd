@@ -21,6 +21,7 @@ from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.callbacks.early_stopping import EarlyStopping
 
+from pprint import pprint
 
 class LitContrastiveWSD(L.LightningModule):
     def __init__(
@@ -325,6 +326,7 @@ if __name__ == "__main__":
     parser.add_argument('--log_every_n_steps', default=1, type=int)
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
+    parser.add_argument('--save_topk', default=5, type=int, help='Save top k based on validation metrics (default: 5)')
 
     parser.add_argument('--ukc_num_neighbors', type=int, nargs='+', default=[8, 8], help='Number of neighbors to be sampled during training or inference (default: 8 8)')
     parser.add_argument('--lemma_sense_mapping', type=str, default="lemma_gnn_mapping.csv", help="lemma to id mapping file")
@@ -435,7 +437,7 @@ if __name__ == "__main__":
         mode="max")
     
     checkpoint_callback = ModelCheckpoint(
-        save_top_k=1,
+        save_top_k=args.save_topk,
         monitor="eval_f1_score",
         mode="max"
     )
@@ -459,22 +461,32 @@ if __name__ == "__main__":
                 train_dataloaders=train_data,
                 val_dataloaders=eval_data)
     
-    best_model = LitContrastiveWSD.load_from_checkpoint(
-        checkpoint_callback.best_model_path,
-        model=model,
-        device=device,
-        tokenizer=tokenizer,
-        batch_size=args.batch_size,
-        learning_rate=args.learning_rate,
-        scheduler_patience=args.scheduler_patience,
-        scheduler_frequency=args.val_check_interval,
-        ukc=ukc,
-        gloss_sampler=gloss_sampler,
-        polysemy_sampler=polysemy_sampler,
-        lemma_sense_mapping=lemma_sense_mapping,
-        gnn_ukc_mapping=gnn_ukc_mapping,
-        eval_dir=args.eval_dir,
-        test_dir=args.test_dir)
+    test_results = []
+    for path in checkpoint_callback.best_k_models:
+        value = checkpoint_callback.best_k_models[path]
+        best_model = LitContrastiveWSD.load_from_checkpoint(
+            path,
+            model=model,
+            device=device,
+            tokenizer=tokenizer,
+            batch_size=args.batch_size,
+            learning_rate=args.learning_rate,
+            scheduler_patience=args.scheduler_patience,
+            scheduler_frequency=args.val_check_interval,
+            ukc=ukc,
+            gloss_sampler=gloss_sampler,
+            polysemy_sampler=polysemy_sampler,
+            lemma_sense_mapping=lemma_sense_mapping,
+            gnn_ukc_mapping=gnn_ukc_mapping,
+            eval_dir=args.eval_dir,
+            test_dir=args.test_dir)
 
-    trainer.test(model=pl_model,
-                 dataloaders=test_data)
+        test_result = trainer.test(model=best_model, dataloaders=test_data)
+
+        test_results.append({
+            "path": path,
+            "val_score": value.item(),
+            "test_score": test_result[0]['test_f1_score']
+        })
+    
+    pprint(test_results)
