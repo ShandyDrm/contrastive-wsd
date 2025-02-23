@@ -322,7 +322,7 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', default=1e-5, type=float, help="learning rate, default=1e-5")
     parser.add_argument('--scheduler_patience', default=3, type=int)
     parser.add_argument('--precision', default='16-mixed', type=str)
-    parser.add_argument('--log_every_n_steps', default=20, type=int)
+    parser.add_argument('--log_every_n_steps', default=1, type=int)
     parser.add_argument('--base_model', default="google-bert/bert-base-uncased", type=str, help='Base transformers model to use (default: bert-base-uncased)')
     parser.add_argument('--small', default=False, type=bool, help='For debugging purposes, only process small amounts of data')
 
