@@ -277,7 +277,7 @@ class LitContrastiveWSD(L.LightningModule):
         self.test_step_scores = []
 
     def configure_optimizers(self):
-        optimizer = torch.optim.RAdam(self.parameters(), lr=self.learning_rate)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate)
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=self.scheduler_patience, threshold=0)
         return {
             'optimizer': optimizer,
@@ -423,6 +423,7 @@ if __name__ == "__main__":
         "base_model": args.base_model,
         "learning_rate": args.learning_rate,
         "attention_multihead": args.gat_heads,
+        "optimizer": "AdamW",
         "scheduler": "ReduceLROnPlateau",
         "scheduler_patience": args.scheduler_patience,
         "scheduler_threshold": 0,
