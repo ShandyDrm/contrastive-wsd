@@ -39,7 +39,8 @@ class LitContrastiveWSD(L.LightningModule):
             lemma_sense_mapping: dict,
             gnn_ukc_mapping: dict,
             eval_dir: str,
-            test_dir: str
+            test_dir: str,
+            random_sample_gloss: bool,
         ):
         super().__init__()
 
@@ -59,6 +60,8 @@ class LitContrastiveWSD(L.LightningModule):
 
         self.eval_dir = eval_dir
         self.test_dir = test_dir
+
+        self.random_sample_gloss = random_sample_gloss
 
         self.validation_step_outputs = []
         self.validation_step_top1 = []
@@ -103,9 +106,13 @@ class LitContrastiveWSD(L.LightningModule):
                 polysemy_samples = self.polysemy_sampler.generate_samples(k, only=possible_senses)
                 negative_from_polysemy.append(polysemy_samples["gnn_id"].iloc[0])
         
-        exclude_from_sampling = np.array(answers_ukc.tolist() + negative_from_polysemy)
-        gloss_samples = self.gloss_sampler.generate_samples(self.batch_size, exclude=exclude_from_sampling)
-        all_samples = np.concat((exclude_from_sampling, gloss_samples["gnn_id"].to_numpy()))
+        if self.random_sample_gloss:
+            exclude_from_sampling = np.array(answers_ukc.tolist() + negative_from_polysemy)
+            gloss_samples = self.gloss_sampler.generate_samples(self.batch_size, exclude=exclude_from_sampling)
+            all_samples = np.concat((exclude_from_sampling, gloss_samples["gnn_id"].to_numpy()))
+        else:
+            all_samples = np.array(answers_ukc.tolist() + negative_from_polysemy)
+
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
         glosses, edges = self.ukc.sample(all_samples_tensor)
@@ -335,6 +342,7 @@ if __name__ == "__main__":
     parser.add_argument('--gat_heads', type=int, default=4, help="number of multi-head attentions, default=4")
     parser.add_argument('--gat_self_loops', type=bool, default=False, help="enable attention mechanism to see its own features, default=False")
     parser.add_argument('--gat_residual', type=bool, default=True, help="enable residual [f(x) = x + g(x)] to graph attention network, default=True")
+    parser.add_argument('--random_sample_gloss', type=bool, default=False, help="random sample gloss during training (default: False)")
 
     parser.add_argument('--train_filename', type=str, default='train.complete.data.json')
     parser.add_argument('--eval_filename', type=str, default='eval.complete.data.json')
@@ -413,7 +421,9 @@ if __name__ == "__main__":
         lemma_sense_mapping=lemma_sense_mapping,
         gnn_ukc_mapping=gnn_ukc_mapping,
         eval_dir=args.eval_dir,
-        test_dir=args.test_dir)
+        test_dir=args.test_dir, 
+        random_sample_gloss=args.random_sample_gloss,
+    )
 
     wandb_logger = WandbLogger(
         project=args.project_name
@@ -428,6 +438,7 @@ if __name__ == "__main__":
         "scheduler_patience": args.scheduler_patience,
         "scheduler_threshold": 0,
         "precision": args.precision,
+        "random_sample_gloss": args.random_sample_gloss,
     })
     
     early_stop_callback = EarlyStopping(
@@ -480,7 +491,9 @@ if __name__ == "__main__":
             lemma_sense_mapping=lemma_sense_mapping,
             gnn_ukc_mapping=gnn_ukc_mapping,
             eval_dir=args.eval_dir,
-            test_dir=args.test_dir)
+            test_dir=args.test_dir, 
+            random_sample_gloss=args.random_sample_gloss,
+        )
 
         test_result = trainer.test(model=best_model, dataloaders=test_data)
 
