@@ -41,6 +41,8 @@ class LitContrastiveWSD(L.LightningModule):
             eval_dir: str,
             test_dir: str,
             random_sample_gloss: bool,
+            polysemy_gloss: bool,
+
         ):
         super().__init__()
 
@@ -62,6 +64,7 @@ class LitContrastiveWSD(L.LightningModule):
         self.test_dir = test_dir
 
         self.random_sample_gloss = random_sample_gloss
+        self.polysemy_gloss = polysemy_gloss
 
         self.validation_step_outputs = []
         self.validation_step_top1 = []
@@ -91,27 +94,29 @@ class LitContrastiveWSD(L.LightningModule):
         pos = batch["pos"]
         loc = batch["loc"]
         sentence = batch["sentence"]
-        answers_ukc = batch["answers_ukc"]
+        answers_ukc = np.array(batch["answers_ukc"].tolist())
 
-        negative_from_polysemy = []
-        for _lemma, _pos, _labels in zip(lemmas, pos, answers_ukc):
-            lemma_pos = f"{_lemma}_{_pos}"
-            if lemma_pos not in lemma_sense_mapping:
-                continue
+        all_samples = answers_ukc
 
-            possible_senses = set(lemma_sense_mapping[lemma_pos]) - set([_labels])
+        if self.polysemy_gloss:
+            negative_from_polysemy = []
+            for _lemma, _pos, _labels in zip(lemmas, pos, answers_ukc):
+                lemma_pos = f"{_lemma}_{_pos}"
+                if lemma_pos not in lemma_sense_mapping:
+                    continue
 
-            if len(possible_senses) > 0:   # possible polysemy
-                k = 1
-                polysemy_samples = self.polysemy_sampler.generate_samples(k, only=possible_senses)
-                negative_from_polysemy.append(polysemy_samples["gnn_id"].iloc[0])
-        
+                possible_senses = set(lemma_sense_mapping[lemma_pos]) - set([_labels])
+
+                if len(possible_senses) > 0:   # possible polysemy
+                    k = 1
+                    polysemy_samples = self.polysemy_sampler.generate_samples(k, only=possible_senses)
+                    polysemy_sample = polysemy_samples["gnn_id"].iloc[0]
+                    all_samples = np.append(all_samples, polysemy_sample)
+
         if self.random_sample_gloss:
             exclude_from_sampling = np.array(answers_ukc.tolist() + negative_from_polysemy)
             gloss_samples = self.gloss_sampler.generate_samples(self.batch_size, exclude=exclude_from_sampling)
-            all_samples = np.concat((exclude_from_sampling, gloss_samples["gnn_id"].to_numpy()))
-        else:
-            all_samples = np.array(answers_ukc.tolist() + negative_from_polysemy)
+            all_samples = np.concat(all_samples, gloss_samples["gnn_id"].to_numpy())
 
         all_samples_tensor = torch.tensor(all_samples, dtype=torch.long)
 
@@ -343,6 +348,7 @@ if __name__ == "__main__":
     parser.add_argument('--gat_self_loops', type=bool, default=False, help="enable attention mechanism to see its own features, default=False")
     parser.add_argument('--gat_residual', type=bool, default=True, help="enable residual [f(x) = x + g(x)] to graph attention network, default=True")
     parser.add_argument('--random_sample_gloss', type=bool, default=False, help="random sample gloss during training (default: False)")
+    parser.add_argument('--polysemy_gloss', type=bool, default=False, help='sample polysemy during training (default: False)')
 
     parser.add_argument('--train_filename', type=str, default='train.complete.data.json')
     parser.add_argument('--eval_filename', type=str, default='eval.complete.data.json')
@@ -423,6 +429,7 @@ if __name__ == "__main__":
         eval_dir=args.eval_dir,
         test_dir=args.test_dir, 
         random_sample_gloss=args.random_sample_gloss,
+        polysemy_gloss=args.polysemy_gloss,
     )
 
     wandb_logger = WandbLogger(
@@ -439,6 +446,7 @@ if __name__ == "__main__":
         "scheduler_threshold": 0,
         "precision": args.precision,
         "random_sample_gloss": args.random_sample_gloss,
+        "polysemy_gloss":args.polysemy_gloss,
     })
     
     early_stop_callback = EarlyStopping(
@@ -493,6 +501,7 @@ if __name__ == "__main__":
             eval_dir=args.eval_dir,
             test_dir=args.test_dir, 
             random_sample_gloss=args.random_sample_gloss,
+            polysemy_gloss=args.polysemy_gloss,
         )
 
         test_result = trainer.test(model=best_model, dataloaders=test_data)
