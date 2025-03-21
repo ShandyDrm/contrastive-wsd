@@ -170,6 +170,9 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# Visual Code
+.vscode
+
 # DO NOT UPLOAD THE DATA!
 *.csv
 *.pt
